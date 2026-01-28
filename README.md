@@ -18,7 +18,7 @@
 ### ❄️ Powered By
 
 This project is made possible by the incredible open-source work from the **[Earthmover](https://earthmover.io)** team:
-- **[Icechunk](https://github.com/earthmover-io/icechunk)**: The transactional storage engine for Zarr that provides the backbone for our high-performance data access.
+- **[Icechunk](https://github.com/earth-mover/icechunk)**: The transactional storage engine for Zarr that provides the backbone for our high-performance data access.
 - **Arraylake**: The cloud-native data lake that hosts the global ERA5 reanalysis archives used by this agent.
 
 ### 🚀 Core Pillars
