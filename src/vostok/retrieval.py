@@ -28,12 +28,36 @@ from vostok.memory import get_memory
 logger = logging.getLogger(__name__)
 
 
-def generate_filename(variable: str, query_type: str, start: str, end: str) -> str:
+def _format_coord(value: float) -> str:
+    """Format coordinates for stable, filename-safe identifiers."""
+    if abs(value) < 0.005:
+        value = 0.0
+    return f"{value:.2f}"
+
+
+def generate_filename(
+    variable: str,
+    query_type: str,
+    start: str,
+    end: str,
+    min_latitude: float,
+    max_latitude: float,
+    min_longitude: float,
+    max_longitude: float,
+    region: Optional[str] = None,
+) -> str:
     """Generate a descriptive filename for the dataset."""
     clean_var = variable.replace("_", "")
     clean_start = start.replace("-", "")
     clean_end = end.replace("-", "")
-    return f"era5_{clean_var}_{query_type}_{clean_start}_{clean_end}.zarr"
+    if region:
+        region_tag = region.lower()
+    else:
+        region_tag = (
+            f"lat{_format_coord(min_latitude)}_{_format_coord(max_latitude)}"
+            f"_lon{_format_coord(min_longitude)}_{_format_coord(max_longitude)}"
+        )
+    return f"era5_{clean_var}_{query_type}_{clean_start}_{clean_end}_{region_tag}.zarr"
 
 
 def format_file_size(size_bytes: int) -> str:
@@ -104,6 +128,7 @@ def retrieve_era5_data(
         )
 
     # Apply region bounds if specified
+    region_tag = None
     if region:
         region_info = get_region(region)
         if region_info:
@@ -111,6 +136,7 @@ def retrieve_era5_data(
             max_latitude = region_info.max_lat
             min_longitude = region_info.min_lon
             max_longitude = region_info.max_lon
+            region_tag = region.lower()
             logger.info(f"Using region '{region}'")
         else:
             logger.warning(f"Unknown region '{region}', using provided coordinates")
@@ -121,7 +147,17 @@ def retrieve_era5_data(
 
     # Setup paths
     output_dir = get_data_dir()
-    filename = generate_filename(short_var, query_type, start_date, end_date)
+    filename = generate_filename(
+        short_var,
+        query_type,
+        start_date,
+        end_date,
+        min_latitude,
+        max_latitude,
+        min_longitude,
+        max_longitude,
+        region_tag,
+    )
     local_path = str(output_dir / filename)
 
     # Check cache first

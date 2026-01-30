@@ -127,12 +127,36 @@ class ERA5RetrievalArgs(BaseModel):
 # HELPER FUNCTIONS
 # ============================================================================
 
-def generate_filename(variable: str, query_type: str, start: str, end: str) -> str:
+def _format_coord(value: float) -> str:
+    """Format coordinates for stable, filename-safe identifiers."""
+    if abs(value) < 0.005:
+        value = 0.0
+    return f"{value:.2f}"
+
+
+def generate_filename(
+    variable: str,
+    query_type: str,
+    start: str,
+    end: str,
+    min_latitude: float,
+    max_latitude: float,
+    min_longitude: float,
+    max_longitude: float,
+    region: Optional[str] = None,
+) -> str:
     """Generate a descriptive filename for the dataset."""
     clean_var = variable.replace('_', '')
     clean_start = start.replace('-', '')
     clean_end = end.replace('-', '')
-    return f"era5_{clean_var}_{query_type}_{clean_start}_{clean_end}.zarr"
+    if region:
+        region_tag = region.lower()
+    else:
+        region_tag = (
+            f"lat{_format_coord(min_latitude)}_{_format_coord(max_latitude)}"
+            f"_lon{_format_coord(min_longitude)}_{_format_coord(max_longitude)}"
+        )
+    return f"era5_{clean_var}_{query_type}_{clean_start}_{clean_end}_{region_tag}.zarr"
 
 
 def get_bounds_from_region(region: str) -> Optional[Tuple[float, float, float, float]]:
@@ -257,11 +281,15 @@ def retrieve_era5_data(
         )
 
     # Apply region bounds if specified
+    region_tag = None
     if region:
         bounds = get_bounds_from_region(region)
         if bounds:
             min_latitude, max_latitude, min_longitude, max_longitude = bounds
-            logger.info(f"Using region '{region}': lat=[{min_latitude}, {max_latitude}], lon=[{min_longitude}, {max_longitude}]")
+            region_tag = region.lower()
+            logger.info(
+                f"Using region '{region}': lat=[{min_latitude}, {max_latitude}], lon=[{min_longitude}, {max_longitude}]"
+            )
         else:
             logger.warning(f"Unknown region '{region}', using provided coordinates")
 
@@ -273,7 +301,17 @@ def retrieve_era5_data(
     output_dir = Path(DATA_DIR)
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    filename = generate_filename(short_var, query_type, start_date, end_date)
+    filename = generate_filename(
+        short_var,
+        query_type,
+        start_date,
+        end_date,
+        min_latitude,
+        max_latitude,
+        min_longitude,
+        max_longitude,
+        region_tag,
+    )
     local_path = str(output_dir / filename)
 
     # Check cache first

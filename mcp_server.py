@@ -85,6 +85,11 @@ def retrieve_era5_data_sync(
     from datetime import datetime
     import xarray as xr
 
+    def _format_coord(value: float) -> str:
+        if abs(value) < 0.005:
+            value = 0.0
+        return f"{value:.2f}"
+
     memory = get_memory()
 
     # Get API key
@@ -99,12 +104,14 @@ def retrieve_era5_data_sync(
         return "Error: The 'icechunk' library is required. Install with: pip install icechunk"
 
     # Apply region bounds if specified
+    region_tag = None
     if region and region.lower() in GEOGRAPHIC_REGIONS:
         r = GEOGRAPHIC_REGIONS[region.lower()]
         min_latitude = r["min_lat"]
         max_latitude = r["max_lat"]
         min_longitude = r["min_lon"]
         max_longitude = r["max_lon"]
+        region_tag = region.lower()
         logger.info(f"Using region '{region}'")
 
     # Resolve variable name
@@ -118,7 +125,12 @@ def retrieve_era5_data_sync(
     clean_var = short_var.replace('_', '')
     clean_start = start_date.replace('-', '')
     clean_end = end_date.replace('-', '')
-    filename = f"era5_{clean_var}_{query_type}_{clean_start}_{clean_end}.zarr"
+    if not region_tag:
+        region_tag = (
+            f"lat{_format_coord(min_latitude)}_{_format_coord(max_latitude)}"
+            f"_lon{_format_coord(min_longitude)}_{_format_coord(max_longitude)}"
+        )
+    filename = f"era5_{clean_var}_{query_type}_{clean_start}_{clean_end}_{region_tag}.zarr"
     local_path = str(output_dir / filename)
 
     # Check cache
