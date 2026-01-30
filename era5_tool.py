@@ -11,14 +11,16 @@ Features:
 - Validation and error handling
 """
 
+import json
+import logging
 import os
+import shutil
 import sys
 import time
-import shutil
-import logging
 from pathlib import Path
 from typing import Literal, Optional, Tuple
 from datetime import datetime, timedelta
+from urllib.request import Request, urlopen
 
 import xarray as xr
 from pydantic import BaseModel, Field, field_validator
@@ -191,10 +193,59 @@ def retrieve_era5_data(
     """
     memory = get_memory()
 
+    def _ensure_aws_region(api_key: str) -> None:
+        try:
+            req = Request(
+                "https://api.earthmover.io/repos/earthmover-public/era5-surface-aws",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            with urlopen(req, timeout=30) as resp:
+                payload = resp.read().decode("utf-8")
+            repo_meta = json.loads(payload)
+        except Exception:
+            return
+
+        if not isinstance(repo_meta, dict):
+            return
+
+        bucket = repo_meta.get("bucket")
+        if not isinstance(bucket, dict):
+            return
+
+        extra_cfg = bucket.get("extra_config")
+        if not isinstance(extra_cfg, dict):
+            return
+
+        region_name = extra_cfg.get("region_name")
+        if not isinstance(region_name, str) or not region_name:
+            return
+
+        updated = False
+        if "AWS_REGION" not in os.environ:
+            os.environ["AWS_REGION"] = region_name
+            updated = True
+        if "AWS_DEFAULT_REGION" not in os.environ:
+            os.environ["AWS_DEFAULT_REGION"] = region_name
+            updated = True
+        if "AWS_ENDPOINT_URL" not in os.environ:
+            os.environ["AWS_ENDPOINT_URL"] = f"https://s3.{region_name}.amazonaws.com"
+            updated = True
+        if "AWS_S3_ENDPOINT" not in os.environ:
+            os.environ["AWS_S3_ENDPOINT"] = f"https://s3.{region_name}.amazonaws.com"
+            updated = True
+
+        if updated:
+            logger.info(
+                "Auto-set AWS region/endpoint for Arraylake: region=%s endpoint=%s",
+                region_name,
+                os.environ.get("AWS_ENDPOINT_URL"),
+            )
+
     # Get API key
     api_key = os.environ.get("ARRAYLAKE_API_KEY")
     if not api_key:
         return "Error: ARRAYLAKE_API_KEY not found in environment. Please set it in .env file."
+    _ensure_aws_region(api_key)
 
     # Check icechunk is available
     try:
