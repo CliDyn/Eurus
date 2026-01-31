@@ -26,12 +26,12 @@ import xarray as xr
 from pydantic import BaseModel, Field, field_validator
 from langchain_core.tools import StructuredTool
 
-from config import (
+from ..config import (
     DATA_DIR, PLOTS_DIR,
     get_variable_info, get_short_name, list_available_variables,
     ERA5_VARIABLES, GEOGRAPHIC_REGIONS, format_file_size
 )
-from memory import get_memory
+from ..memory import get_memory
 
 # Configure logging
 logger = logging.getLogger(__name__)
