@@ -7,9 +7,9 @@ Earthmover's cloud-optimized archive via Icechunk.
 
 Features:
 - ERA5 reanalysis data retrieval (SST, temperature, wind, pressure, etc.)
-- Climate Science Intelligence: anomalies, Z-scores, EOF patterns
-- Compound extreme detection ("Ocean Ovens")
-- Trend analysis with statistical significance
+- Interactive Python REPL with pre-loaded scientific libraries
+- Maritime route calculation with weather risk assessment
+- Analysis methodology guides for climate science
 - Intelligent caching with persistent memory
 - Predefined geographic regions (El Niño, Atlantic, Pacific, etc.)
 - Full MCP protocol support for Claude and other AI assistants
@@ -27,7 +27,7 @@ Example usage as MCP server:
 
 Example usage as Python library:
     from vostok import retrieve_era5_data, list_available_variables
-    from vostok.tools import get_all_tools, get_science_tools
+    from vostok.tools import get_all_tools
 
     # Download SST data
     result = retrieve_era5_data(
@@ -38,8 +38,8 @@ Example usage as Python library:
         region="california_coast"
     )
 
-    # Get all tools for agent
-    tools = get_all_tools(enable_science=True)
+    # Get all tools for agent (only core tools, no science clutter)
+    tools = get_all_tools(enable_routing=True)
 """
 
 __version__ = "1.1.0"
@@ -55,7 +55,7 @@ from vostok.config import (
 )
 from vostok.retrieval import retrieve_era5_data
 from vostok.memory import MemoryManager, get_memory
-from vostok.tools import get_all_tools, get_science_tools
+from vostok.tools import get_all_tools
 
 __all__ = [
     # Version
@@ -74,5 +74,4 @@ __all__ = [
     "get_memory",
     # Tools
     "get_all_tools",
-    "get_science_tools",
 ]

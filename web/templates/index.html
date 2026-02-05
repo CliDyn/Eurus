@@ -17,11 +17,7 @@
 
     <div class="chat-input-container">
         <form id="chat-form" class="chat-form">
-            <textarea
-                id="message-input"
-                placeholder="Ask about climate data..."
-                rows="1"
-            ></textarea>
+            <textarea id="message-input" placeholder="Ask about climate data..." rows="1"></textarea>
             <button type="submit" id="send-btn" disabled>Send</button>
         </form>
         <div class="input-hints">
@@ -44,5 +40,5 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="/static/js/chat.js"></script>
+<script src="/static/js/chat.js?v=20260204"></script>
 {% endblock %}

@@ -18,7 +18,6 @@ Commands:
     /clear         - Clear conversation history
     /cache         - List cached datasets
     /memory        - Show memory summary
-    /cleancache    - Clear Python __pycache__ directories
     /cleardata     - Clear all downloaded ERA5 datasets
     /help          - Show help message
 """
@@ -31,16 +30,19 @@ from datetime import datetime
 
 from dotenv import load_dotenv
 
-# Configure logging before other imports
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s | %(levelname)s | %(message)s',
-    datefmt='%H:%M:%S'
-)
-logger = logging.getLogger(__name__)
-
-# Load environment variables
+# Load environment variables first
 load_dotenv()
+
+# Add src to path
+PROJECT_ROOT = Path(__file__).parent
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
+
+# Setup centralized logging
+from vostok.logging_config import setup_logging, cleanup_old_logs
+setup_logging(mode="cli")
+cleanup_old_logs(keep=20)
+
+logger = logging.getLogger(__name__)
 
 # Import after logging is configured
 from langchain_openai import ChatOpenAI
@@ -92,7 +94,6 @@ HELP_TEXT = """
 ║    /clear      - Clear conversation history (fresh start)                 ║
 ║    /cache      - List all cached ERA5 datasets                            ║
 ║    /memory     - Show memory summary (datasets, analyses)                 ║
-║    /cleancache - Clear Python __pycache__ directories                     ║
 ║    /cleardata  - Clear all downloaded ERA5 datasets                       ║
 ║    /quit       - Exit the agent (also: q, quit, exit)                     ║
 ║                                                                           ║
@@ -106,14 +107,14 @@ HELP_TEXT = """
 ║                                                                           ║
 ║  SCIENCE TOOLS (The "Physics Brain"):                                     ║
 ║  ─────────────────────────────────────────────────────────────────────   ║
-║    compute_climate_diagnostics  - Z-scores & anomalies (RUN FIRST!)       ║
 ║    analyze_climate_modes_eof    - Pattern discovery via EOF/PCA           ║
 ║    detect_compound_extremes     - "Ocean Oven" detection                  ║
 ║    calculate_climate_trends     - Trends with p-value significance        ║
-║    calculate_correlation        - Teleconnection analysis                 ║
+║    detrend_climate_data         - Remove warming trend for analysis       ║
 ║    detect_percentile_extremes   - Percentile-based extreme detection      ║
 ║    fetch_climate_index          - NOAA indices (Nino3.4, NAO, PDO, AMO)   ║
 ║    calculate_return_periods     - GEV/EVT (1-in-100 year events)          ║
+║    analyze_granger_causality    - Prove X causes Y (not just correlated)  ║
 ║                                                                           ║
 ║  AVAILABLE VARIABLES:                                                     ║
 ║  ─────────────────────────────────────────────────────────────────────   ║
@@ -145,44 +146,6 @@ HELP_TEXT = """
 ╚═══════════════════════════════════════════════════════════════════════════╝
 """
 
-
-# ============================================================================
-# UTILITY FUNCTIONS
-# ============================================================================
-
-def clear_pycache(root_dir: Path = None) -> tuple[int, int]:
-    """
-    Remove all __pycache__ directories and .pyc/.pyo files.
-    
-    Args:
-        root_dir: Root directory to search. Defaults to project root.
-        
-    Returns:
-        Tuple of (directories_removed, files_removed)
-    """
-    import shutil
-    
-    if root_dir is None:
-        root_dir = Path(__file__).parent
-    
-    dirs_removed = 0
-    files_removed = 0
-    
-    # Find and remove __pycache__ directories
-    for cache_dir in root_dir.rglob('__pycache__'):
-        if cache_dir.is_dir():
-            shutil.rmtree(cache_dir)
-            dirs_removed += 1
-            logger.debug(f"Removed: {cache_dir}")
-    
-    # Also remove any stray .pyc/.pyo files
-    for pyc_file in root_dir.rglob('*.py[co]'):
-        if pyc_file.is_file():
-            pyc_file.unlink()
-            files_removed += 1
-            logger.debug(f"Removed: {pyc_file}")
-    
-    return dirs_removed, files_removed
 
 
 def clear_data_directory(data_dir: Path = None) -> tuple[int, float]:
@@ -266,19 +229,6 @@ def handle_command(command: str, memory: MemoryManager) -> tuple[bool, str]:
 """
         return True, response
 
-    elif cmd == '/cleancache':
-        project_root = Path(__file__).parent
-        dirs_removed, files_removed = clear_pycache(project_root)
-        response = f"""
-╔═══════════════════════════════════════════════════════════════════════════╗
-║                         CACHE CLEARED                                     ║
-╠═══════════════════════════════════════════════════════════════════════════╣
-║  __pycache__ directories removed: {dirs_removed:<5}                                  ║
-║  .pyc/.pyo files removed: {files_removed:<5}                                         ║
-╚═══════════════════════════════════════════════════════════════════════════╝
-"""
-        return True, response
-
     elif cmd == '/cleardata':
         datasets_removed, size_freed = clear_data_directory(DATA_DIR)
         # Also clear memory references
@@ -349,7 +299,7 @@ def main():
         print("  [ ] Maritime Routing & Risk (disabled)")
     print("-" * 50 + "\n")
 
-    tools = get_all_tools(enable_routing=enable_routing, enable_science=True)
+    tools = get_all_tools(enable_routing=enable_routing, enable_guide=True)
     logger.info(f"Loaded {len(tools)} tools")
 
     # Initialize LLM
@@ -421,7 +371,9 @@ def main():
                 full_response = ""
                 tool_executed = False
                 
-                for event in agent.stream({"messages": messages}, stream_mode="updates"):
+                # Limit recursion to prevent infinite loops (~15 tool calls max)
+                config = {"recursion_limit": 35}
+                for event in agent.stream({"messages": messages}, stream_mode="updates", config=config):
                     # Handle different event types
                     for node_name, node_output in event.items():
                         if node_name == "agent":
@@ -459,7 +411,7 @@ def main():
                 else:
                     # Fallback: use invoke if streaming didn't capture content
                     print("(Processing...)", flush=True)
-                    result = agent.invoke({"messages": messages})
+                    result = agent.invoke({"messages": messages}, config=config)
                     messages = result["messages"]
                     last_message = messages[-1]
                     

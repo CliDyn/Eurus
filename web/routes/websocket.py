@@ -44,9 +44,17 @@ manager = ConnectionManager()
 @router.websocket("/ws/chat")
 async def websocket_chat(websocket: WebSocket):
     """WebSocket endpoint for chat."""
+    import uuid
+    connection_id = str(uuid.uuid4())  # Unique ID for this connection
+    
     await manager.connect(websocket)
+    logger.info(f"New connection: {connection_id}")
 
     try:
+        # Create session for this connection
+        from web.agent_wrapper import create_session, get_session, close_session
+        session = create_session(connection_id)
+        
         while True:
             data = await websocket.receive_json()
             message = data.get("message", "").strip()
@@ -54,15 +62,16 @@ async def websocket_chat(websocket: WebSocket):
             if not message:
                 continue
 
-            logger.info(f"Received: {message[:100]}...")
+            logger.info(f"[{connection_id[:8]}] Received: {message[:100]}...")
 
             # Send thinking indicator
             await manager.send_json(websocket, {"type": "thinking"})
 
             try:
-                from web.agent_wrapper import get_agent_session
-
-                session = get_agent_session()
+                # Get session for this connection
+                session = get_session(connection_id)
+                if not session:
+                    raise RuntimeError("Session not found")
 
                 # Callback for streaming
                 async def stream_callback(event_type: str, content: str, **kwargs):
@@ -87,7 +96,10 @@ async def websocket_chat(websocket: WebSocket):
                 })
 
     except WebSocketDisconnect:
+        logger.info(f"Connection {connection_id[:8]} disconnected")
         manager.disconnect(websocket)
+        close_session(connection_id)  # Clean up session
     except Exception as e:
         logger.exception(f"WebSocket error: {e}")
         manager.disconnect(websocket)
+        close_session(connection_id)  # Clean up session

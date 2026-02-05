@@ -12,10 +12,13 @@ from typing import List, Dict, Any
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+# Add project root and src/ to path for vostok package
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
-from config import CONFIG, ERA5_VARIABLES, GEOGRAPHIC_REGIONS
+# IMPORT FROM VOSTOK PACKAGE
+from vostok.config import CONFIG, ERA5_VARIABLES, GEOGRAPHIC_REGIONS
 
 router = APIRouter()
 
@@ -69,7 +72,7 @@ async def health_check():
 @router.get("/cache", response_model=CacheResponse)
 async def list_cache():
     """List all cached datasets."""
-    from memory import get_memory
+    from vostok.memory import get_memory
 
     memory = get_memory()
     datasets = []
@@ -132,7 +135,7 @@ async def get_config():
 @router.delete("/conversation")
 async def clear_conversation():
     """Clear the conversation history."""
-    from memory import get_memory
+    from vostok.memory import get_memory
     from web.agent_wrapper import get_agent_session
 
     memory = get_memory()
@@ -149,7 +152,7 @@ async def clear_conversation():
 @router.get("/memory")
 async def get_memory_summary():
     """Get memory summary."""
-    from memory import get_memory
+    from vostok.memory import get_memory
 
     memory = get_memory()
 

@@ -32,6 +32,7 @@ class VostokChat {
             gfm: true
         });
 
+        this.themeToggle = document.getElementById('theme-toggle');
         this.init();
     }
 
@@ -39,6 +40,34 @@ class VostokChat {
         this.connect();
         this.setupEventListeners();
         this.setupImageModal();
+        this.setupTheme();
+    }
+
+    setupTheme() {
+        // Load saved theme or default to dark (neosynth)
+        const savedTheme = localStorage.getItem('vostok-theme') || 'dark';
+        document.documentElement.setAttribute('data-theme', savedTheme);
+        this.updateThemeIcon(savedTheme);
+
+        // Theme toggle click handler
+        if (this.themeToggle) {
+            this.themeToggle.addEventListener('click', () => {
+                const currentTheme = document.documentElement.getAttribute('data-theme');
+                const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+                document.documentElement.setAttribute('data-theme', newTheme);
+                localStorage.setItem('vostok-theme', newTheme);
+                this.updateThemeIcon(newTheme);
+            });
+        }
+    }
+
+    updateThemeIcon(theme) {
+        if (this.themeToggle) {
+            const icon = this.themeToggle.querySelector('.theme-icon');
+            if (icon) {
+                icon.textContent = theme === 'dark' ? '☀️' : '🌙';
+            }
+        }
     }
 
     connect() {
@@ -252,12 +281,21 @@ class VostokChat {
                 this.showThinkingIndicator();
                 break;
 
+            case 'status':
+                this.updateStatusIndicator(data.content);
+                break;
+
             case 'chunk':
                 this.appendToAssistantMessage(data.content);
                 break;
 
             case 'plot':
                 this.addPlot(data.data, data.path, data.code || '');
+                break;
+
+            case 'video':
+                console.log('[WS] Video message received:', data);
+                this.addVideo(data.data, data.path, data.mimetype || 'video/mp4');
                 break;
 
             case 'complete':
@@ -307,6 +345,26 @@ class VostokChat {
     removeThinkingIndicator() {
         const indicator = document.getElementById('thinking-indicator');
         if (indicator) indicator.remove();
+    }
+
+    updateStatusIndicator(statusText) {
+        // Replace thinking dots with status message
+        let indicator = document.getElementById('thinking-indicator');
+
+        if (!indicator) {
+            indicator = document.createElement('div');
+            indicator.className = 'message thinking-message';
+            indicator.id = 'thinking-indicator';
+            this.messagesContainer.appendChild(indicator);
+        }
+
+        indicator.innerHTML = `
+            <div class="status-indicator">
+                <span class="status-spinner"></span>
+                <span class="status-text">${this.escapeHtml(statusText)}</span>
+            </div>
+        `;
+        this.scrollToBottom();
     }
 
     appendToAssistantMessage(content) {
@@ -415,6 +473,68 @@ class VostokChat {
         // Click on image to enlarge
         figure.querySelector('img').addEventListener('click', () => {
             this.showImageModal(imgSrc);
+        });
+
+        plotsDiv.appendChild(figure);
+        this.scrollToBottom();
+    }
+
+    addVideo(base64Data, path, mimetype = 'video/mp4') {
+        console.log('[VIDEO] addVideo called:', { path, mimetype, dataLength: base64Data?.length });
+        this.removeThinkingIndicator();
+
+        if (!this.currentAssistantMessage) {
+            this.appendToAssistantMessage('');
+        }
+
+        const plotsDiv = this.currentAssistantMessage.querySelector('.message-plots');
+        console.log('[VIDEO] plotsDiv found:', plotsDiv);
+
+        const figure = document.createElement('figure');
+        figure.className = 'plot-figure video-figure';
+
+        // Handle different formats
+        let videoSrc;
+        if (mimetype === 'image/gif') {
+            // GIFs display as img
+            videoSrc = `data:image/gif;base64,${base64Data}`;
+            figure.innerHTML = `
+                <img src="${videoSrc}" alt="Generated animation" class="video-gif" style="max-width: 100%; border-radius: 8px;">
+                <div class="plot-actions">
+                    <button class="enlarge-btn" title="Enlarge">Enlarge</button>
+                    <button class="download-btn" title="Download">Download</button>
+                </div>
+            `;
+
+            // Enlarge for GIF
+            figure.querySelector('.enlarge-btn').addEventListener('click', () => {
+                this.showImageModal(videoSrc);
+            });
+            figure.querySelector('img').addEventListener('click', () => {
+                this.showImageModal(videoSrc);
+            });
+        } else {
+            // Video formats (webm, mp4)
+            videoSrc = `data:${mimetype};base64,${base64Data}`;
+            figure.innerHTML = `
+                <video controls autoplay loop muted playsinline style="max-width: 100%; border-radius: 8px;">
+                    <source src="${videoSrc}" type="${mimetype}">
+                    Your browser does not support video playback.
+                </video>
+                <div class="plot-actions">
+                    <button class="download-btn" title="Download">Download</button>
+                </div>
+            `;
+        }
+
+        // Download button
+        figure.querySelector('.download-btn').addEventListener('click', () => {
+            const link = document.createElement('a');
+            link.href = videoSrc;
+            const ext = mimetype.includes('gif') ? 'gif' : mimetype.includes('webm') ? 'webm' : 'mp4';
+            const filename = path ? path.split('/').pop() : `vostok_animation.${ext}`;
+            link.download = filename;
+            link.click();
         });
 
         plotsDiv.appendChild(figure);

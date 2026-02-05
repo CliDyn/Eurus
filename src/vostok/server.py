@@ -54,40 +54,16 @@ except ImportError:
 
 # Import ERA5 components
 from vostok.config import (
-    GEOGRAPHIC_REGIONS,
     list_available_variables,
-    list_regions,
 )
 from vostok.memory import get_memory
-from vostok.retrieval import retrieve_era5_data
+from vostok.tools.era5 import retrieve_era5_data, ERA5RetrievalArgs
 
-# Import Climate Science tools for full scientific capability
-from vostok.tools.climate_science import (
-    # Functions
-    calculate_climate_diagnostics,
-    perform_eof_analysis,
-    detect_compound_extremes,
-    calculate_trends,
-    calculate_correlation,
-    detect_percentile_extremes,
-    fetch_climate_index,
-    calculate_return_periods,
-    # Nature-tier additions
-    detrend_climate_data,
-    perform_composite_analysis,
-    analyze_granger_causality,
-    # Argument schemas for MCP
-    DiagnosticsArgs,
-    EOFArgs,
-    CompoundExtremeArgs,
-    TrendArgs,
-    CorrelationArgs,
-    PercentileArgs,
-    IndexArgs,
-    ReturnPeriodArgs,
-    DetrendArgs,
-    CompositeArgs,
-    GrangerArgs,
+# Import Maritime Routing tool
+from vostok.tools.routing import (
+    calculate_maritime_route,
+    RouteArgs,
+    HAS_ROUTING_DEPS,
 )
 
 # Create MCP server
@@ -104,82 +80,21 @@ app = server
 @server.list_tools()
 async def list_tools() -> list[Tool]:
     """List available MCP tools."""
-    return [
+    tools = [
         Tool(
             name="retrieve_era5_data",
             description=(
                 "Retrieve ERA5 climate reanalysis data from Earthmover's cloud archive.\n\n"
-                "QUERY TYPES:\n"
-                "- 'temporal': For time series (long time periods, small geographic area)\n"
-                "- 'spatial': For spatial maps (large geographic area, short time periods)\n\n"
-                "CLIMATOLOGY & RISK ASSESSMENT:\n"
-                "- For risk assessment or climatological studies, retrieve at least 20-30 years of data.\n"
-                "- Use 'temporal' with focused geographic bounds to manage size for long periods.\n\n"
-                "VARIABLES:\n"
-                "- sst: Sea Surface Temperature (K)\n"
-                "- t2: 2m Air Temperature (K)\n"
-                "- u10, v10: 10m Wind Components (m/s)\n"
-                "- mslp: Mean Sea Level Pressure (Pa)\n"
-                "- tcc: Total Cloud Cover (0-1)\n"
-                "- tp: Total Precipitation (m)\n\n"
-                "REGIONS (optional, overrides lat/lon):\n"
-                "north_atlantic, north_pacific, california_coast, mediterranean,\n"
-                "gulf_of_mexico, caribbean, nino34, nino3, nino4, arctic, antarctic\n\n"
-                "Returns the file path. Load with: xr.open_dataset('PATH', engine='zarr')"
+                "⚠️ QUERY TYPE is AUTO-DETECTED based on time/area:\n"
+                "- 'temporal': time > 1 day AND region < 30°×30° (time series, small area)\n"
+                "- 'spatial': time ≤ 1 day OR region ≥ 30°×30° (maps, snapshots, large area)\n\n"
+                "VARIABLES: sst, t2, u10, v10, mslp, tcc, tp\n"
+                "NOTE: swh (waves) is NOT available in this dataset!\n\n"
+                "COORDINATES: Always specify lat/lon bounds explicitly.\n"
+                "Longitude: Use 0-360 format (e.g., -74°W = 286°E)\n\n"
+                "Returns file path. Load: xr.open_dataset('PATH', engine='zarr')"
             ),
-            inputSchema={
-                "type": "object",
-                "properties": {
-                    "query_type": {
-                        "type": "string",
-                        "enum": ["temporal", "spatial"],
-                        "description": "Use 'temporal' for time series, 'spatial' for maps"
-                    },
-                    "variable_id": {
-                        "type": "string",
-                        "description": "ERA5 variable (sst, skt, stl1, swvl1, t2, d2, u10, v10, u100, v100, sp, mslp, blh, tcc, tcw, tcwv, cp, lsp, tp, ssr, ssrd, cape, sd)"
-                    },
-                    "start_date": {
-                        "type": "string",
-                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                        "description": "Start date (YYYY-MM-DD)"
-                    },
-                    "end_date": {
-                        "type": "string",
-                        "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
-                        "description": "End date (YYYY-MM-DD)"
-                    },
-                    "min_latitude": {
-                        "type": "number",
-                        "minimum": -90,
-                        "maximum": 90,
-                        "default": -90.0,
-                        "description": "Southern bound (-90 to 90)"
-                    },
-                    "max_latitude": {
-                        "type": "number",
-                        "minimum": -90,
-                        "maximum": 90,
-                        "default": 90.0,
-                        "description": "Northern bound (-90 to 90)"
-                    },
-                    "min_longitude": {
-                        "type": "number",
-                        "default": 0.0,
-                        "description": "Western bound (0 to 360, negative allowed)"
-                    },
-                    "max_longitude": {
-                        "type": "number",
-                        "default": 359.75,
-                        "description": "Eastern bound (0 to 360, negative allowed)"
-                    },
-                    "region": {
-                        "type": "string",
-                        "description": "Predefined region name (overrides lat/lon bounds)"
-                    }
-                },
-                "required": ["query_type", "variable_id", "start_date", "end_date"]
-            }
+            inputSchema=ERA5RetrievalArgs.model_json_schema()
         ),
         Tool(
             name="list_era5_variables",
@@ -205,120 +120,31 @@ async def list_tools() -> list[Tool]:
                 "additionalProperties": False
             }
         ),
-        Tool(
-            name="list_regions",
-            description=(
-                "List all predefined geographic regions that can be used with retrieve_era5_data. "
-                "Includes ocean basins, El Niño regions, and coastal areas."
-            ),
-            inputSchema={
-                "type": "object",
-                "properties": {},
-                "additionalProperties": False
-            }
-        ),
-        # ========== CLIMATE SCIENCE TOOLS ==========
-        Tool(
-            name="compute_climate_diagnostics",
-            description=(
-                "Calculate anomalies and Z-scores from raw ERA5 data. "
-                "ESSENTIAL first step for any scientific analysis. "
-                "Z-scores enable detection of statistically significant extremes (Z > 2σ)."
-            ),
-            inputSchema=DiagnosticsArgs.model_json_schema()
-        ),
-        Tool(
-            name="analyze_climate_modes_eof",
-            description=(
-                "Perform EOF/PCA analysis to discover dominant spatial patterns. "
-                "Reveals climate modes like El Niño, marine heatwave patterns, blocking. "
-                "Returns spatial patterns and principal component time series."
-            ),
-            inputSchema=EOFArgs.model_json_schema()
-        ),
-        Tool(
-            name="detect_compound_extremes",
-            description=(
-                "Detect 'Ocean Ovens' - compound events where hot SST coincides with stagnant winds. "
-                "These compound extremes cause severe marine ecosystem stress. "
-                "REQUIRES Z-score data from compute_climate_diagnostics."
-            ),
-            inputSchema=CompoundExtremeArgs.model_json_schema()
-        ),
-        Tool(
-            name="calculate_climate_trends",
-            description=(
-                "Calculate linear trends with statistical significance testing. "
-                "Essential for climate change attribution and long-term analysis. "
-                "Returns trend maps with p-values and significance masking."
-            ),
-            inputSchema=TrendArgs.model_json_schema()
-        ),
-        Tool(
-            name="calculate_correlation",
-            description=(
-                "Calculate temporal correlation between two climate variables or indices. "
-                "Useful for teleconnection analysis and ocean-atmosphere coupling. "
-                "Supports lag analysis for lead-lag relationships."
-            ),
-            inputSchema=CorrelationArgs.model_json_schema()
-        ),
-        Tool(
-            name="detect_percentile_extremes",
-            description=(
-                "Detect extreme events using percentile thresholds (e.g., 90th, 95th). "
-                "Good for marine heatwave and cold spell identification. "
-                "Alternative to Z-score method for extreme detection."
-            ),
-            inputSchema=PercentileArgs.model_json_schema()
-        ),
-        Tool(
-            name="fetch_climate_index",
-            description=(
-                "Fetch standard climate indices (Nino3.4, NAO, PDO, AMO, SOI) from NOAA. "
-                "ESSENTIAL for attribution - correlate local events with large-scale modes. "
-                "Returns monthly time series for correlation analysis."
-            ),
-            inputSchema=IndexArgs.model_json_schema()
-        ),
-        Tool(
-            name="calculate_return_periods",
-            description=(
-                "Fit GEV distribution to calculate Return Periods (e.g., '1-in-100 year event'). "
-                "CRITICAL for Nature papers - quantifies rarity beyond Z-scores. "
-                "Uses Extreme Value Theory. Requires 20+ years of data."
-            ),
-            inputSchema=ReturnPeriodArgs.model_json_schema()
-        ),
-        # ========== NATURE-TIER TOOLS (Reviewer #2 Defense) ==========
-        Tool(
-            name="detrend_climate_data",
-            description=(
-                "Remove global warming trend to isolate internal climate modes. "
-                "MANDATORY before correlation analysis on multi-decadal data. "
-                "Reviewer #2 will reject papers that skip this step."
-            ),
-            inputSchema=DetrendArgs.model_json_schema()
-        ),
-        Tool(
-            name="perform_composite_analysis",
-            description=(
-                "Create composite maps showing average atmospheric state during events. "
-                "Use to discover MECHANISMS - e.g., 'What does pressure look like during heatwaves?' "
-                "Essential for explaining WHY extremes occur."
-            ),
-            inputSchema=CompositeArgs.model_json_schema()
-        ),
-        Tool(
-            name="analyze_granger_causality",
-            description=(
-                "Perform Granger Causality test to prove X drives Y (not just correlated). "
-                "Answers: Does NAO CAUSE SST anomalies, or is it the other way around? "
-                "Critical for Nature papers - moves from correlation to causation."
-            ),
-            inputSchema=GrangerArgs.model_json_schema()
-        ),
     ]
+
+    # ========== MARITIME ROUTING TOOL (if dependencies available) ==========
+    if HAS_ROUTING_DEPS:
+        tools.append(
+            Tool(
+                name="calculate_maritime_route",
+                description=(
+                    "Calculate a realistic maritime shipping route between two ports. "
+                    "Uses global shipping lane graph to avoid land and find optimal path.\n\n"
+                    "RETURNS: Waypoint coordinates, bounding box, and INSTRUCTIONS for "
+                    "climatological risk assessment protocol.\n\n"
+                    "DOES NOT: Check weather itself. The Agent must follow the returned "
+                    "protocol to assess route safety using ERA5 data.\n\n"
+                    "WORKFLOW:\n"
+                    "1. Call this tool → get waypoints + instructions\n"
+                    "2. Download ERA5 wind data (u10, v10) for the region\n"
+                    "3. Call get_visualization_guide(viz_type='maritime_risk_assessment')\n"
+                    "4. Execute analysis in python_repl"
+                ),
+                inputSchema=RouteArgs.model_json_schema()
+            )
+        )
+
+    return tools
 
 
 # ============================================================================
@@ -331,19 +157,17 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
 
     try:
         if name == "retrieve_era5_data":
-            # Run synchronous function in thread pool
+            # Run synchronous function in thread pool (query_type auto-detected)
             result = await asyncio.get_event_loop().run_in_executor(
                 None,
                 lambda: retrieve_era5_data(
-                    query_type=arguments["query_type"],
                     variable_id=arguments["variable_id"],
                     start_date=arguments["start_date"],
                     end_date=arguments["end_date"],
-                    min_latitude=arguments.get("min_latitude", -90.0),
-                    max_latitude=arguments.get("max_latitude", 90.0),
-                    min_longitude=arguments.get("min_longitude", 0.0),
-                    max_longitude=arguments.get("max_longitude", 359.75),
-                    region=arguments.get("region"),
+                    min_latitude=arguments["min_latitude"],
+                    max_latitude=arguments["max_latitude"],
+                    min_longitude=arguments["min_longitude"],
+                    max_longitude=arguments["max_longitude"],
                 )
             )
             return CallToolResult(content=[TextContent(type="text", text=result)])
@@ -357,127 +181,27 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
             result = memory.list_datasets()
             return CallToolResult(content=[TextContent(type="text", text=result)])
 
-        elif name == "list_regions":
-            result = list_regions()
-            return CallToolResult(content=[TextContent(type="text", text=result)])
-
-        # ========== CLIMATE SCIENCE TOOL HANDLERS ==========
-        elif name == "compute_climate_diagnostics":
-            result = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: calculate_climate_diagnostics(
-                    dataset_path=arguments["dataset_path"],
-                    baseline_start=arguments.get("baseline_start", "1991"),
-                    baseline_end=arguments.get("baseline_end", "2020")
+        # ========== MARITIME ROUTING HANDLER ==========
+        elif name == "calculate_maritime_route":
+            if not HAS_ROUTING_DEPS:
+                return CallToolResult(
+                    content=[TextContent(
+                        type="text",
+                        text="Error: Maritime routing dependencies not installed.\n"
+                             "Install with: pip install scgraph geopy"
+                    )],
+                    isError=True
                 )
-            )
-            return CallToolResult(content=[TextContent(type="text", text=result)])
-
-        elif name == "analyze_climate_modes_eof":
             result = await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: perform_eof_analysis(
-                    dataset_path=arguments["dataset_path"],
-                    n_modes=arguments.get("n_modes", 3)
-                )
-            )
-            return CallToolResult(content=[TextContent(type="text", text=result)])
-
-        elif name == "detect_compound_extremes":
-            result = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: detect_compound_extremes(
-                    sst_path=arguments["sst_path"],
-                    wind_path=arguments["wind_path"],
-                    heat_threshold=arguments.get("heat_threshold", 1.5),
-                    stagnation_threshold=arguments.get("stagnation_threshold", -1.0)
-                )
-            )
-            return CallToolResult(content=[TextContent(type="text", text=result)])
-
-        elif name == "calculate_climate_trends":
-            result = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: calculate_trends(
-                    dataset_path=arguments["dataset_path"],
-                    confidence_level=arguments.get("confidence_level", 0.95)
-                )
-            )
-            return CallToolResult(content=[TextContent(type="text", text=result)])
-
-        elif name == "calculate_correlation":
-            result = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: calculate_correlation(
-                    dataset_path_1=arguments["dataset_path_1"],
-                    dataset_path_2=arguments["dataset_path_2"],
-                    lag_hours=arguments.get("lag_hours", 0)
-                )
-            )
-            return CallToolResult(content=[TextContent(type="text", text=result)])
-
-        elif name == "detect_percentile_extremes":
-            result = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: detect_percentile_extremes(
-                    dataset_path=arguments["dataset_path"],
-                    percentile=arguments.get("percentile", 95.0),
-                    extreme_type=arguments.get("extreme_type", "above")
-                )
-            )
-            return CallToolResult(content=[TextContent(type="text", text=result)])
-
-        elif name == "fetch_climate_index":
-            result = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: fetch_climate_index(
-                    index_name=arguments["index_name"],
-                    start_date=arguments["start_date"],
-                    end_date=arguments["end_date"]
-                )
-            )
-            return CallToolResult(content=[TextContent(type="text", text=result)])
-
-        elif name == "calculate_return_periods":
-            result = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: calculate_return_periods(
-                    dataset_path=arguments["dataset_path"],
-                    block_size=arguments.get("block_size", "year"),
-                    fit_type=arguments.get("fit_type", "maxima")
-                )
-            )
-            return CallToolResult(content=[TextContent(type="text", text=result)])
-
-        # ========== NATURE-TIER TOOL HANDLERS ==========
-        elif name == "detrend_climate_data":
-            result = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: detrend_climate_data(
-                    dataset_path=arguments["dataset_path"],
-                    method=arguments.get("method", "linear")
-                )
-            )
-            return CallToolResult(content=[TextContent(type="text", text=result)])
-
-        elif name == "perform_composite_analysis":
-            result = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: perform_composite_analysis(
-                    target_path=arguments["target_path"],
-                    index_path=arguments["index_path"],
-                    threshold=arguments.get("threshold", 1.0)
-                )
-            )
-            return CallToolResult(content=[TextContent(type="text", text=result)])
-
-        elif name == "analyze_granger_causality":
-            result = await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: analyze_granger_causality(
-                    dataset_x=arguments["dataset_x"],
-                    dataset_y=arguments["dataset_y"],
-                    max_lag=arguments.get("max_lag", 5)
+                lambda: calculate_maritime_route(
+                    origin_lat=arguments["origin_lat"],
+                    origin_lon=arguments["origin_lon"],
+                    dest_lat=arguments["dest_lat"],
+                    dest_lon=arguments["dest_lon"],
+                    month=arguments["month"],
+                    year=arguments.get("year"),
+                    speed_knots=arguments.get("speed_knots", 14.0)
                 )
             )
             return CallToolResult(content=[TextContent(type="text", text=result)])

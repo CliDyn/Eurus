@@ -2,7 +2,8 @@
 ERA5 MCP Memory System
 ======================
 
-Persistent memory for dataset caching and conversation history.
+Session-based memory with smart compression for conversation history.
+Dataset cache persists across sessions, but conversations are fresh each session.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import tiktoken
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -18,6 +20,16 @@ from typing import Any, Dict, List, Optional
 from vostok.config import get_memory_dir, CONFIG
 
 logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+
+# Token limits for smart memory management
+MAX_CONTEXT_TOKENS = 8000  # Max tokens to keep in active memory
+COMPRESSION_THRESHOLD = 6000  # Start compressing when we hit this
+SUMMARY_TARGET_TOKENS = 500  # Target tokens for compressed summary
 
 
 # ============================================================================
@@ -44,7 +56,6 @@ class DatasetRecord:
 
     @classmethod
     def from_dict(cls, data: dict) -> "DatasetRecord":
-        # Convert list to tuple for bounds
         if isinstance(data.get("lat_bounds"), list):
             data["lat_bounds"] = tuple(data["lat_bounds"])
         if isinstance(data.get("lon_bounds"), list):
@@ -61,14 +72,14 @@ class Message:
     role: str
     content: str
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+    is_compressed: bool = False  # Flag for compressed summary messages
 
     def to_dict(self) -> dict:
         return asdict(self)
 
     @classmethod
     def from_dict(cls, data: dict) -> "Message":
-        # Filter to only known fields to handle legacy data with extra fields
-        valid_keys = {'role', 'content', 'timestamp'}
+        valid_keys = {'role', 'content', 'timestamp', 'is_compressed'}
         filtered = {k: v for k, v in data.items() if k in valid_keys}
         return cls(**filtered)
 
@@ -97,50 +108,173 @@ class AnalysisRecord:
 
 
 # ============================================================================
+# TOKEN COUNTER
+# ============================================================================
+
+class TokenCounter:
+    """Efficient token counting using tiktoken."""
+    
+    _encoder = None
+    
+    @classmethod
+    def get_encoder(cls):
+        if cls._encoder is None:
+            try:
+                cls._encoder = tiktoken.encoding_for_model("gpt-4")
+            except Exception:
+                cls._encoder = tiktoken.get_encoding("cl100k_base")
+        return cls._encoder
+    
+    @classmethod
+    def count(cls, text: str) -> int:
+        """Count tokens in text."""
+        try:
+            return len(cls.get_encoder().encode(text))
+        except Exception:
+            # Fallback: rough estimate
+            return len(text) // 4
+
+
+# ============================================================================
+# SMART CONVERSATION MEMORY
+# ============================================================================
+
+class SmartConversationMemory:
+    """
+    Session-based conversation memory with smart compression.
+    
+    Features:
+    - Fresh start each session (no persistent history)
+    - Automatic compression when context gets too long
+    - Preserves recent messages in full, compresses older ones
+    - Token-aware memory management
+    """
+    
+    def __init__(self):
+        self.messages: List[Message] = []
+        self.compressed_summary: Optional[str] = None
+        self._token_count = 0
+        logger.info("SmartConversationMemory initialized (fresh session)")
+    
+    def add_message(self, role: str, content: str) -> Message:
+        """Add a message and check if compression is needed."""
+        msg = Message(role=role, content=content)
+        self.messages.append(msg)
+        
+        # Update token count
+        self._token_count += TokenCounter.count(content)
+        
+        # Check if we need to compress
+        if self._token_count > COMPRESSION_THRESHOLD:
+            self._compress_history()
+        
+        return msg
+    
+    def _compress_history(self) -> None:
+        """Compress older messages into a summary."""
+        if len(self.messages) < 6:
+            return  # Not enough messages to compress
+        
+        # Keep the last 4 messages in full
+        keep_count = 4
+        to_compress = self.messages[:-keep_count]
+        to_keep = self.messages[-keep_count:]
+        
+        if not to_compress:
+            return
+        
+        # Create a concise summary of compressed messages
+        summary_parts = []
+        for msg in to_compress:
+            role = msg.role.upper()
+            # Truncate long content for summary
+            content = msg.content[:200] + "..." if len(msg.content) > 200 else msg.content
+            summary_parts.append(f"[{role}]: {content}")
+        
+        summary = "[Previous conversation summary]\n" + "\n".join(summary_parts)
+        
+        # Replace old messages with summary + recent
+        summary_msg = Message(
+            role="system",
+            content=summary[:SUMMARY_TARGET_TOKENS * 4],  # Rough limit
+            is_compressed=True
+        )
+        
+        self.messages = [summary_msg] + to_keep
+        
+        # Recalculate token count
+        self._token_count = sum(
+            TokenCounter.count(m.content) for m in self.messages
+        )
+        
+        logger.info(f"Compressed {len(to_compress)} messages. Current tokens: {self._token_count}")
+    
+    def get_messages(self, n_messages: Optional[int] = None) -> List[Message]:
+        """Get conversation messages."""
+        if n_messages is None:
+            return list(self.messages)
+        return list(self.messages)[-n_messages:]
+    
+    def get_langchain_messages(self, n_messages: Optional[int] = None) -> List[dict]:
+        """Get messages in LangChain format."""
+        messages = self.get_messages(n_messages)
+        return [m.to_langchain() for m in messages]
+    
+    def clear(self) -> None:
+        """Clear all messages."""
+        self.messages.clear()
+        self.compressed_summary = None
+        self._token_count = 0
+        logger.info("Conversation memory cleared")
+    
+    def get_token_count(self) -> int:
+        """Get current token count."""
+        return self._token_count
+
+
+# ============================================================================
 # MEMORY MANAGER
 # ============================================================================
 
 class MemoryManager:
     """
-    Manages persistent memory for ERA5 MCP.
+    Manages memory for ERA5 MCP.
 
     Features:
-    - Dataset cache registry
-    - Conversation history
-    - Automatic persistence to disk
+    - Dataset cache registry (persists across sessions)
+    - Session-based conversation history (fresh each restart)
+    - Smart compression for long conversations
+    - NO persistent conversation history to avoid stale context
     """
 
-    def __init__(self, memory_dir: Optional[Path] = None):
+    def __init__(self, memory_dir: Optional[Path] = None, persist_conversations: bool = False):
         self.memory_dir = memory_dir or get_memory_dir()
         self.memory_dir.mkdir(parents=True, exist_ok=True)
+        self.persist_conversations = persist_conversations
 
-        # File paths
+        # File paths (only datasets persist)
         self.datasets_file = self.memory_dir / "datasets.json"
-        self.conversations_file = self.memory_dir / "conversations.json"
         self.analyses_file = self.memory_dir / "analyses.json"
 
         # In-memory storage
         self.datasets: Dict[str, DatasetRecord] = {}
-        self.conversations: List[Message] = []
         self.analyses: List[AnalysisRecord] = []
+        
+        # Session-based conversation memory (FRESH each time!)
+        self.conversation_memory = SmartConversationMemory()
 
-        # Load existing data
-        self._load_all()
+        # Load persistent data (only datasets)
+        self._load_datasets()
+        self._load_analyses()
 
         logger.info(
-            f"MemoryManager initialized: {len(self.conversations)} messages, "
-            f"{len(self.datasets)} datasets, {len(self.analyses)} analyses"
+            f"MemoryManager initialized: {len(self.datasets)} datasets, "
+            f"FRESH conversation (session-based)"
         )
 
     # ========================================================================
-    # PERSISTENCE
+    # PERSISTENCE (Datasets only)
     # ========================================================================
-
-    def _load_all(self) -> None:
-        """Load all memory from disk."""
-        self._load_datasets()
-        self._load_conversations()
-        self._load_analyses()
 
     def _load_datasets(self) -> None:
         """Load dataset registry from disk."""
@@ -161,34 +295,13 @@ class MemoryManager:
         except Exception as e:
             logger.error(f"Failed to save datasets: {e}")
 
-    def _load_conversations(self) -> None:
-        """Load conversation history from disk."""
-        if self.conversations_file.exists():
-            try:
-                with open(self.conversations_file, "r") as f:
-                    data = json.load(f)
-                    self.conversations = [Message.from_dict(m) for m in data]
-                    # Trim to max history
-                    if len(self.conversations) > CONFIG.max_conversation_history:
-                        self.conversations = self.conversations[-CONFIG.max_conversation_history:]
-            except Exception as e:
-                logger.warning(f"Failed to load conversations: {e}")
-
-    def _save_conversations(self) -> None:
-        """Save conversation history to disk."""
-        try:
-            with open(self.conversations_file, "w") as f:
-                json.dump([m.to_dict() for m in self.conversations], f, indent=2)
-        except Exception as e:
-            logger.error(f"Failed to save conversations: {e}")
-
     def _load_analyses(self) -> None:
         """Load analysis history from disk."""
         if self.analyses_file.exists():
             try:
                 with open(self.analyses_file, "r") as f:
                     data = json.load(f)
-                    self.analyses = [AnalysisRecord.from_dict(r) for r in data]
+                    self.analyses = [AnalysisRecord.from_dict(r) for r in data[-20:]]  # Keep last 20
             except Exception as e:
                 logger.warning(f"Failed to load analyses: {e}")
 
@@ -196,7 +309,7 @@ class MemoryManager:
         """Save analysis history to disk."""
         try:
             with open(self.analyses_file, "w") as f:
-                json.dump([a.to_dict() for a in self.analyses[-50:]], f, indent=2)
+                json.dump([a.to_dict() for a in self.analyses[-20:]], f, indent=2)
         except Exception as e:
             logger.error(f"Failed to save analyses: {e}")
 
@@ -268,37 +381,30 @@ class MemoryManager:
         return len(missing)
 
     # ========================================================================
-    # CONVERSATION MANAGEMENT
+    # CONVERSATION MANAGEMENT (Session-based)
     # ========================================================================
 
     def add_message(self, role: str, content: str) -> Message:
         """Add a message to conversation history."""
-        msg = Message(role=role, content=content)
-        self.conversations.append(msg)
-
-        # Trim if needed
-        if len(self.conversations) > CONFIG.max_conversation_history:
-            self.conversations = self.conversations[-CONFIG.max_conversation_history:]
-
-        self._save_conversations()
-        return msg
+        return self.conversation_memory.add_message(role, content)
 
     def get_conversation_history(self, n_messages: Optional[int] = None) -> List[Message]:
         """Get recent conversation history."""
-        if n_messages is None:
-            return list(self.conversations)
-        return list(self.conversations)[-n_messages:]
+        return self.conversation_memory.get_messages(n_messages)
 
     def clear_conversation(self) -> None:
         """Clear conversation history."""
-        self.conversations.clear()
-        self._save_conversations()
+        self.conversation_memory.clear()
         logger.info("Conversation history cleared")
 
     def get_langchain_messages(self, n_messages: Optional[int] = None) -> List[dict]:
         """Get messages in LangChain format."""
-        messages = self.get_conversation_history(n_messages)
-        return [m.to_langchain() for m in messages]
+        return self.conversation_memory.get_langchain_messages(n_messages)
+
+    # Legacy property for compatibility
+    @property
+    def conversations(self) -> List[Message]:
+        return self.conversation_memory.messages
 
     # ========================================================================
     # ANALYSIS TRACKING
@@ -313,8 +419,6 @@ class MemoryManager:
         plots_generated: Optional[List[str]] = None,
     ) -> AnalysisRecord:
         """Record an analysis for history."""
-        from datetime import datetime
-
         record = AnalysisRecord(
             description=description,
             code=code,
@@ -339,13 +443,18 @@ class MemoryManager:
         """Get a summary of current context for the agent."""
         lines = []
 
-        # Recent conversation summary
-        recent = self.get_conversation_history(5)
+        # Token usage
+        tokens = self.conversation_memory.get_token_count()
+        if tokens > 0:
+            lines.append(f"Session tokens: {tokens}/{MAX_CONTEXT_TOKENS}")
+
+        # Recent conversation (brief)
+        recent = self.get_conversation_history(3)
         if recent:
-            lines.append("Recent Conversation:")
-            for msg in recent[-3:]:
-                content_preview = msg.content[:100] + "..." if len(msg.content) > 100 else msg.content
-                lines.append(f"  [{msg.role}]: {content_preview}")
+            lines.append("\nRecent in this session:")
+            for msg in recent:
+                preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
+                lines.append(f"  [{msg.role}]: {preview}")
 
         # Available datasets
         valid_datasets = {p: r for p, r in self.datasets.items() if os.path.exists(p)}
@@ -354,13 +463,7 @@ class MemoryManager:
             for path, record in list(valid_datasets.items())[:5]:
                 lines.append(f"  - {record.variable}: {record.start_date} to {record.end_date}")
 
-        # Recent analyses
-        if self.analyses:
-            lines.append(f"\nRecent Analyses ({len(self.analyses)} total):")
-            for analysis in self.analyses[-2:]:
-                lines.append(f"  - {analysis.description[:60]}...")
-
-        return "\n".join(lines) if lines else "No context available."
+        return "\n".join(lines) if lines else "Fresh session - no context yet."
 
     # ========================================================================
     # UTILITIES
@@ -392,6 +495,7 @@ def get_memory() -> MemoryManager:
 
 
 def reset_memory() -> None:
-    """Reset the global memory instance."""
+    """Reset the global memory instance (new session)."""
     global _memory_instance
     _memory_instance = None
+    logger.info("Memory reset - next get_memory() will create fresh session")

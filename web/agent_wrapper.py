@@ -12,8 +12,10 @@ from pathlib import Path
 from typing import Optional, Callable, Any, List, Dict
 from queue import Queue
 
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add src directory to path for vostok package
+PROJECT_ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(PROJECT_ROOT))
+sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -21,10 +23,11 @@ load_dotenv()
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
 
-from config import CONFIG, AGENT_SYSTEM_PROMPT
-from memory import get_memory
-from era5_tool import era5_tool
-from repl_tool import SuperbPythonREPLTool
+# IMPORT FROM VOSTOK PACKAGE - SINGLE SOURCE OF TRUTH
+from vostok.config import CONFIG, AGENT_SYSTEM_PROMPT
+from vostok.memory import get_memory  # Use SINGLETON so tools can register datasets!
+from vostok.tools import get_all_tools
+from vostok.tools.repl import PythonREPLTool
 
 logger = logging.getLogger(__name__)
 
@@ -36,9 +39,14 @@ class AgentSession:
 
     def __init__(self):
         self._agent = None
-        self._repl_tool: Optional[SuperbPythonREPLTool] = None
+        self._repl_tool: Optional[PythonREPLTool] = None
         self._messages: List[Dict] = []
         self._initialized = False
+        
+        # Use global memory singleton (so tools like retrieve_era5_data can register datasets!)
+        # But clear conversation history for fresh session (datasets cache remains)
+        self._memory = get_memory()
+        self._memory.clear_conversation()  # Fresh chat, keep cached datasets
 
         # Queue for captured plots (thread-safe)
         self._plot_queue: Queue = Queue()
@@ -57,19 +65,22 @@ class AgentSession:
             return
 
         try:
-            # Initialize tools
+            # Initialize REPL tool with working directory
             logger.info("Starting Python kernel...")
-            self._repl_tool = SuperbPythonREPLTool(working_dir=os.getcwd())
+            self._repl_tool = PythonREPLTool(working_dir=os.getcwd())
 
             # Set up plot callback using the proper method
             def on_plot_captured(base64_data: str, filepath: str, code: str = ""):
                 logger.info(f"Plot captured, adding to queue: {filepath}")
                 self._plot_queue.put((base64_data, filepath, code))
 
-            self._repl_tool._executor.set_plot_callback(on_plot_captured)
+            self._repl_tool.set_plot_callback(on_plot_captured)
             logger.info("Plot callback registered")
 
-            tools = [era5_tool, self._repl_tool]
+            # Get ALL tools from centralized registry (no SCIENCE_TOOLS!)
+            tools = get_all_tools(enable_routing=True, enable_guide=True)
+            # Replace the default REPL with our configured one
+            tools = [t for t in tools if t.name != "python_repl"] + [self._repl_tool]
 
             # Initialize LLM
             logger.info("Connecting to LLM...")
@@ -78,13 +89,12 @@ class AgentSession:
                 temperature=CONFIG.temperature
             )
 
-            # Load memory context
-            memory = get_memory()
-            context_summary = memory.get_context_summary()
+            # Use session-local memory for datasets (NOT global!)
+            datasets = self._memory.list_datasets()
             enhanced_prompt = AGENT_SYSTEM_PROMPT
-
-            if context_summary and context_summary != "No context available.":
-                enhanced_prompt += f"\n\n## CURRENT CONTEXT\n{context_summary}"
+            
+            if datasets != "No datasets in cache.":
+                enhanced_prompt += f"\n\n## CACHED DATASETS\n{datasets}"
 
             # Create agent
             logger.info("Creating agent...")
@@ -95,9 +105,8 @@ class AgentSession:
                 debug=False
             )
 
-            # Load recent messages from memory
-            recent_messages = memory.get_langchain_messages(n_messages=10)
-            self._messages = recent_messages.copy()
+            # FRESH conversation - no old messages!
+            self._messages = []
 
             self._initialized = True
             logger.info("Agent session initialized successfully")
@@ -138,20 +147,42 @@ class AgentSession:
         # Clear any old plots from queue
         self.get_pending_plots()
 
-        # Add user message to history
-        memory = get_memory()
-        memory.add_message("user", user_message)
+        # Add user message to history (session-local memory)
+        self._memory.add_message("user", user_message)
         self._messages.append({"role": "user", "content": user_message})
 
         try:
-            # Invoke the agent in executor
+            # Send status: analyzing
+            await stream_callback("status", "🔍 Analyzing your request...")
+            await asyncio.sleep(0.3)
+
+            # Invoke the agent in executor (~15 tool calls max)
+            config = {"recursion_limit": 35}
+            
+            # Stream status updates while agent is working
+            await stream_callback("status", "🤖 Processing with AI...")
+            
             result = await asyncio.get_event_loop().run_in_executor(
                 None,
-                lambda: self._agent.invoke({"messages": self._messages})
+                lambda: self._agent.invoke({"messages": self._messages}, config=config)
             )
 
             # Update messages
             self._messages = result["messages"]
+            
+            # Parse messages to show tool calls made
+            tool_calls_made = []
+            for msg in self._messages:
+                if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        tool_name = tc.get('name', 'unknown')
+                        if tool_name not in tool_calls_made:
+                            tool_calls_made.append(tool_name)
+                            
+            if tool_calls_made:
+                tools_str = ", ".join(tool_calls_made)
+                await stream_callback("status", f"🛠️ Used tools: {tools_str}")
+                await asyncio.sleep(0.5)
 
             # Extract response
             last_message = self._messages[-1]
@@ -163,6 +194,10 @@ class AgentSession:
             else:
                 response_text = str(last_message)
 
+            # Send status: generating response
+            await stream_callback("status", "✍️ Generating response...")
+            await asyncio.sleep(0.2)
+
             # Stream the response in chunks
             chunk_size = 50
             for i in range(0, len(response_text), chunk_size):
@@ -170,16 +205,33 @@ class AgentSession:
                 await stream_callback("chunk", chunk)
                 await asyncio.sleep(0.01)
 
-            # Send any captured plots
+            # Send any captured media (plots and videos)
             plots = self.get_pending_plots()
-            logger.info(f"Sending {len(plots)} plots to client")
+            # NOTE: Only use session-specific _plot_queue, NOT shared folder scan (privacy!)
+            
+            if plots:
+                await stream_callback("status", f"📊 Rendering {len(plots)} visualization(s)...")
+                await asyncio.sleep(0.3)
+                
+            logger.info(f"Sending {len(plots)} media items to client")
             for plot_data in plots:
                 base64_data, filepath = plot_data[0], plot_data[1]
                 code = plot_data[2] if len(plot_data) > 2 else ""
-                await stream_callback("plot", "", data=base64_data, path=filepath, code=code)
+                
+                # Determine if this is a video or image
+                ext = filepath.lower().split('.')[-1] if filepath else ''
+                if ext in ('gif',):
+                    await stream_callback("video", "", data=base64_data, path=filepath, mimetype="image/gif")
+                elif ext in ('webm',):
+                    await stream_callback("video", "", data=base64_data, path=filepath, mimetype="video/webm")
+                elif ext in ('mp4',):
+                    await stream_callback("video", "", data=base64_data, path=filepath, mimetype="video/mp4")
+                else:
+                    # Default to plot (png, jpg, etc.)
+                    await stream_callback("plot", "", data=base64_data, path=filepath, code=code)
 
             # Save to memory
-            memory.add_message("assistant", response_text)
+            self._memory.add_message("assistant", response_text)
 
             return response_text
 
@@ -197,21 +249,47 @@ class AgentSession:
                 logger.error(f"Error closing REPL: {e}")
 
 
-# Global session instance
-_session: Optional[AgentSession] = None
+# Per-connection sessions (NOT global singleton!)
+# Key: unique connection ID, Value: AgentSession
+_sessions: Dict[str, AgentSession] = {}
 
 
+def create_session(connection_id: str) -> AgentSession:
+    """Create a new session for a connection."""
+    if connection_id in _sessions:
+        # Close existing session first
+        _sessions[connection_id].close()
+    session = AgentSession()
+    _sessions[connection_id] = session
+    logger.info(f"Created session for connection: {connection_id}")
+    return session
+
+
+def get_session(connection_id: str) -> Optional[AgentSession]:
+    """Get session for a connection."""
+    return _sessions.get(connection_id)
+
+
+def close_session(connection_id: str):
+    """Close and remove session for a connection."""
+    if connection_id in _sessions:
+        _sessions[connection_id].close()
+        del _sessions[connection_id]
+        logger.info(f"Closed session for connection: {connection_id}")
+
+
+# DEPRECATED: Keep for backward compatibility during migration
 def get_agent_session() -> AgentSession:
-    """Get or create the global agent session."""
-    global _session
-    if _session is None:
-        _session = AgentSession()
-    return _session
+    """DEPRECATED: Use create_session/get_session with connection_id instead."""
+    logger.warning("get_agent_session() is deprecated - use create_session(connection_id)")
+    # Create default session for CLI/testing
+    if "_default" not in _sessions:
+        _sessions["_default"] = AgentSession()
+    return _sessions["_default"]
 
 
 def shutdown_agent_session():
-    """Shutdown the global agent session."""
-    global _session
-    if _session:
-        _session.close()
-        _session = None
+    """Shutdown all agent sessions."""
+    for conn_id in list(_sessions.keys()):
+        close_session(conn_id)
+    logger.info(f"Shutdown {len(_sessions)} sessions")

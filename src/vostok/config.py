@@ -59,9 +59,9 @@ class ERA5Variable:
         return f"{self.short_name}: {self.long_name} ({self.units})"
 
 
-# Comprehensive ERA5 variable mapping with metadata
+# Comprehensive ERA5 variable mapping (short names only - no duplicates!)
 ERA5_VARIABLES: Dict[str, ERA5Variable] = {
-    # Sea Surface Variables
+    # Sea Surface
     "sst": ERA5Variable(
         short_name="sst",
         long_name="Sea Surface Temperature",
@@ -71,37 +71,7 @@ ERA5_VARIABLES: Dict[str, ERA5Variable] = {
         typical_range=(270, 310),
         colormap="RdYlBu_r"
     ),
-    "sea_surface_temperature": ERA5Variable(
-        short_name="sst",
-        long_name="Sea Surface Temperature",
-        units="K",
-        description="Temperature of sea water near the surface",
-        category="ocean",
-        typical_range=(270, 310),
-        colormap="RdYlBu_r"
-    ),
-
-    # Wave Variables
-    "swh": ERA5Variable(
-        short_name="swh",
-        long_name="Significant Height of Combined Wind Waves and Swell",
-        units="m",
-        description="Average height of the highest third of the waves",
-        category="ocean",
-        typical_range=(0, 15),
-        colormap="Blues"
-    ),
-    "significant_wave_height": ERA5Variable(
-        short_name="swh",
-        long_name="Significant Height of Combined Wind Waves and Swell",
-        units="m",
-        description="Average height of the highest third of the waves",
-        category="ocean",
-        typical_range=(0, 15),
-        colormap="Blues"
-    ),
-
-    # Temperature Variables
+    # Temperature
     "t2": ERA5Variable(
         short_name="t2",
         long_name="2m Temperature",
@@ -111,36 +81,8 @@ ERA5_VARIABLES: Dict[str, ERA5Variable] = {
         typical_range=(220, 330),
         colormap="RdYlBu_r"
     ),
-    "2m_temperature": ERA5Variable(
-        short_name="t2",
-        long_name="2m Temperature",
-        units="K",
-        description="Air temperature at 2 meters above surface",
-        category="atmosphere",
-        typical_range=(220, 330),
-        colormap="RdYlBu_r"
-    ),
-    "temperature": ERA5Variable(
-        short_name="t2",
-        long_name="2m Temperature",
-        units="K",
-        description="Air temperature at 2 meters above surface",
-        category="atmosphere",
-        typical_range=(220, 330),
-        colormap="RdYlBu_r"
-    ),
-
     # Wind Components
     "u10": ERA5Variable(
-        short_name="u10",
-        long_name="10m U-Wind Component",
-        units="m/s",
-        description="Eastward component of wind at 10m",
-        category="atmosphere",
-        typical_range=(-30, 30),
-        colormap="RdBu_r"
-    ),
-    "10m_u_component_of_wind": ERA5Variable(
         short_name="u10",
         long_name="10m U-Wind Component",
         units="m/s",
@@ -158,27 +100,8 @@ ERA5_VARIABLES: Dict[str, ERA5Variable] = {
         typical_range=(-30, 30),
         colormap="RdBu_r"
     ),
-    "10m_v_component_of_wind": ERA5Variable(
-        short_name="v10",
-        long_name="10m V-Wind Component",
-        units="m/s",
-        description="Northward component of wind at 10m",
-        category="atmosphere",
-        typical_range=(-30, 30),
-        colormap="RdBu_r"
-    ),
-
-    # Pressure Variables
+    # Pressure
     "sp": ERA5Variable(
-        short_name="sp",
-        long_name="Surface Pressure",
-        units="Pa",
-        description="Pressure at the Earth's surface",
-        category="atmosphere",
-        typical_range=(85000, 108000),
-        colormap="viridis"
-    ),
-    "surface_pressure": ERA5Variable(
         short_name="sp",
         long_name="Surface Pressure",
         units="Pa",
@@ -196,27 +119,8 @@ ERA5_VARIABLES: Dict[str, ERA5Variable] = {
         typical_range=(96000, 105000),
         colormap="viridis"
     ),
-    "mean_sea_level_pressure": ERA5Variable(
-        short_name="mslp",
-        long_name="Mean Sea Level Pressure",
-        units="Pa",
-        description="Atmospheric pressure reduced to mean sea level",
-        category="atmosphere",
-        typical_range=(96000, 105000),
-        colormap="viridis"
-    ),
-
     # Cloud and Precipitation
     "tcc": ERA5Variable(
-        short_name="tcc",
-        long_name="Total Cloud Cover",
-        units="fraction (0-1)",
-        description="Fraction of sky covered by clouds",
-        category="atmosphere",
-        typical_range=(0, 1),
-        colormap="gray_r"
-    ),
-    "total_cloud_cover": ERA5Variable(
         short_name="tcc",
         long_name="Total Cloud Cover",
         units="fraction (0-1)",
@@ -252,29 +156,41 @@ ERA5_VARIABLES: Dict[str, ERA5Variable] = {
         typical_range=(0, 0.2),
         colormap="Blues"
     ),
-    "total_precipitation": ERA5Variable(
-        short_name="tp",
-        long_name="Total Precipitation",
-        units="m",
-        description="Total accumulated precipitation",
-        category="precipitation",
-        typical_range=(0, 0.2),
-        colormap="Blues"
-    ),
+}
+
+# Aliases for long variable names → short names
+VARIABLE_ALIASES: Dict[str, str] = {
+    "sea_surface_temperature": "sst",
+    "2m_temperature": "t2",
+    "temperature": "t2",
+    "10m_u_component_of_wind": "u10",
+    "10m_v_component_of_wind": "v10",
+    "surface_pressure": "sp",
+    "mean_sea_level_pressure": "mslp",
+    "total_cloud_cover": "tcc",
+    "total_precipitation": "tp",
 }
 
 
 def get_variable_info(variable_id: str) -> Optional[ERA5Variable]:
-    """Get variable metadata by ID (case-insensitive)."""
-    return ERA5_VARIABLES.get(variable_id.lower())
+    """Get variable metadata by ID (case-insensitive, supports aliases)."""
+    key = variable_id.lower()
+    # Check aliases first
+    if key in VARIABLE_ALIASES:
+        key = VARIABLE_ALIASES[key]
+    return ERA5_VARIABLES.get(key)
 
 
 def get_short_name(variable_id: str) -> str:
     """Get the short name for a variable (for dataset access)."""
-    var_info = get_variable_info(variable_id)
+    key = variable_id.lower()
+    # Check aliases first
+    if key in VARIABLE_ALIASES:
+        return VARIABLE_ALIASES[key]
+    var_info = ERA5_VARIABLES.get(key)
     if var_info:
         return var_info.short_name
-    return variable_id.lower()
+    return key
 
 
 def list_available_variables() -> str:
@@ -458,7 +374,7 @@ class AgentConfig:
     # Kernel Settings
     kernel_timeout: float = 300.0
     auto_import_packages: List[str] = field(default_factory=lambda: [
-        "os", "sys", "pandas", "numpy", "xarray",
+        "pandas", "numpy", "xarray",
         "matplotlib", "matplotlib.pyplot", "datetime"
     ])
 
@@ -487,46 +403,44 @@ AGENT_SYSTEM_PROMPT = """You are Vostok, an AI Climate Physicist conducting rese
 **Your PRIMARY directive is to do EXACTLY what the user asks.** 
 
 ### TOOL USAGE RULES:
-1. **`python_repl`**: Use ONLY when:
-   - User explicitly asks for custom/complex analysis that existing tools cannot provide
-   - User explicitly requests Python code execution
-   - An exceptional case where NO other tool can accomplish the task
+1. **`python_repl`**: Use for:
+   - Custom analysis (anomalies, trends, statistics)
+   - Visualization with matplotlib
+   - Any computation not directly provided by other tools
    
-2. **Climate Science Tools** (diagnostics, EOF, extremes, trends): Use ONLY when:
-   - User explicitly asks for anomalies, z-scores, trends, patterns, etc.
-   - User requests scientific/publication-grade analysis
-   - User asks "why" or requests mechanism explanation
-   
-3. **When user asks to "plot temperature" or "get temperature data"**:
-   - Plot the RAW temperature data as requested
-   - Do NOT automatically compute anomalies unless user asks for them
-   - Use the `retrieve_era5_data` tool to get data
-   - Create simple, direct plots of what was requested
+2. **`retrieve_era5_data`**: Use for downloading climate data
+
+3. **`calculate_maritime_route`**: Use for ship routing
+
+4. **`get_analysis_guide`/`get_visualization_guide`**: Use for methodology help
 
 ### EXAMPLES:
 - "Get temperature for Berlin and plot it" → Retrieve data, plot RAW temperature time series
-- "Show temperature anomalies for Berlin" → Retrieve data, compute diagnostics, plot ANOMALIES
-- "Analyze temperature trends" → Use trend analysis tool
-- "Why was 2023 so hot?" → Full scientific workflow with attribution
-
-## SCIENTIFIC PHILOSOPHY (When Scientific Analysis is Requested)
-
-When performing scientific analysis, you perform **attribution**, discover **mechanisms**, and detect **compound extremes**.
-Journals do not publish "data retrieval"; they publish insights about WHY climate behaves the way it does.
+- "Show temperature anomalies for Berlin" → Retrieve data, use python_repl to compute anomalies
+- "Analyze temperature trends" → Retrieve data, use python_repl for trend calculation
+- "Why was 2023 so hot?" → Retrieve data, analyze with python_repl
 
 ## YOUR CAPABILITIES
 
 ### 1. DATA RETRIEVAL: `retrieve_era5_data`
 Downloads ERA5 reanalysis data from Earthmover's cloud-optimized archive.
-**This tool can also generate plots directly** - use the plotting parameters when possible.
 
-**Query Types:**
-- `temporal`: For TIME SERIES analysis (long time periods, focused geographic area)
-- `spatial`: For SPATIAL MAPS (large geographic areas, short time periods)
+**⚠️ STRICT QUERY TYPE RULE (WRONG = 10-100x SLOWER!):**
+┌─────────────────────────────────────────────────────────────────┐
+│ TEMPORAL: (time > 1 day) AND (area < 30°×30°)                   │
+│ SPATIAL:  (time ≤ 1 day) OR  (area ≥ 30°×30°)                   │
+└─────────────────────────────────────────────────────────────────┘
 
-**CRITICAL OPTIMIZATION RULE:**
-- **Use `temporal`** IF: `(hours > 24) AND (region < 30°x30°)`
-- **Use `spatial`**  IF: `(hours <= 24) OR (region > 30°x30°)`
+**COORDINATES - USE ROUTE BOUNDING BOX:**
+- Latitude: -90 to 90
+- Longitude: Use values from route tool's bounding box DIRECTLY!
+  - For Europe/Atlantic: Use -10 to 15 (NOT 0 to 360!)
+  - For Pacific crossing dateline: Use 0-360 system
+  
+**⚠️ CRITICAL:** When `calculate_maritime_route` returns a bounding box,
+USE THOSE EXACT VALUES for min/max longitude. Do NOT convert to 0-360!
+
+**DATA AVAILABILITY:** 1975 to present (updated regularly)
 
 **Available Variables:**
 | Variable | Description | Units |
@@ -539,55 +453,55 @@ Downloads ERA5 reanalysis data from Earthmover's cloud-optimized archive.
 | tcc | Total Cloud Cover | 0-1 |
 | tp | Total Precipitation | m |
 
-**Common Regions:** global, north_atlantic, north_pacific, california_coast,
-mediterranean, gulf_of_mexico, nino34 (El Nino), arctic, antarctic
-
-### 2. CLIMATE SCIENCE TOOLS (Use Only When Requested)
-
-#### `compute_climate_diagnostics`
-Transforms raw data into scientific insights:
-- **Anomalies**: Departure from climatological mean (1991-2020 baseline)
-- **Z-Scores**: Standardized anomalies in units of standard deviation
-- Events with Z > 2σ are statistically significant extremes
-
-#### `analyze_climate_modes_eof`
-Performs EOF/PCA analysis to discover dominant spatial patterns:
-- Reveals climate modes (El Niño, marine heatwave patterns, blocking)
-- Discovers patterns WITHOUT human bias
-- Mode 1 = dominant driver of variability
-
-#### `detect_compound_extremes`
-Identifies "Ocean Ovens" - compound events where:
-- Sea surface is anomalously HOT (Z > 1.5σ)
-- Winds are anomalously WEAK (Z < -1σ)
-- Mechanism: Stagnation prevents mixing, trapping heat
-
-#### `calculate_climate_trends`
-Linear trend analysis with statistical significance:
-- Returns trend per decade with p-values
-- Use stippling to show significant regions (p < 0.05)
-
-#### `calculate_correlation`
-Temporal correlation between variables:
-- Teleconnection analysis (e.g., ENSO impacts)
-- Lead-lag relationships with lag parameter
-
-#### `detect_percentile_extremes`
-Extreme event detection using percentile thresholds:
-- Marine heatwaves: SST > 90th percentile
-- Alternative to Z-score method
-
-### 3. ANALYSIS: `python_repl` (Use Sparingly!)
+### 2. CUSTOM ANALYSIS: `python_repl`
 Persistent Python kernel for custom analysis and visualization.
 **Pre-loaded:** pandas (pd), numpy (np), xarray (xr), matplotlib.pyplot (plt)
 
-**⚠️ ONLY use python_repl when:**
-- User explicitly requests custom Python code
-- Existing tools cannot accomplish the specific task
-- Complex custom visualization is truly required
+#### What you can do with python_repl:
+- **Anomalies**: `anomaly = data - data.mean('time')`
+- **Z-Scores**: `z = (data - clim.mean('time')) / clim.std('time')`
+- **Trends**: Use `scipy.stats.linregress` or numpy polyfit
+- **Extremes**: Filter data where values exceed thresholds
+- **Visualizations**: Any matplotlib plot saved to PLOTS_DIR
 
 ### 4. MEMORY
 Remembers conversation history and previous analyses.
+
+### 5. MARITIME LOGISTICS: `calculate_maritime_route` (Captain Mode)
+Plans shipping routes and assesses climatological hazards.
+
+**WORKFLOW (Mandatory Protocol):**
+1. **ROUTE**: Call `calculate_maritime_route(origin_lat, origin_lon, dest_lat, dest_lon, month)`
+   - Returns waypoints avoiding land via global shipping lane graph
+   - Returns bounding box for data download
+   - Returns STEP-BY-STEP INSTRUCTIONS
+
+2. **DATA**: Download ERA5 climatology for the route region
+   - Variables: `u10`, `v10` (10m wind components) → compute wind speed
+   - NOTE: `swh` (wave height) is NOT available in this dataset!
+   - Period: Target month over LAST 3 YEARS (e.g., July 2021-2023)
+   - Why 3 years? To compute climatological statistics, not just a forecast
+
+3. **METHODOLOGY**: Call `get_visualization_guide(viz_type='maritime_risk_assessment')`
+   - Returns mathematical formulas for Lagrangian risk analysis
+   - Defines hazard thresholds (e.g., wind speed > 15 m/s = DANGER)
+   - Explains how to compute route risk score
+
+4. **ANALYSIS**: Execute in `python_repl` following the methodology:
+   - Extract data at each waypoint (nearest neighbor)
+   - Compute wind speed: `wspd = sqrt(u10² + v10²)`
+   - Compute max/mean/p95 statistics
+   - Identify danger zones (wind > threshold)
+   - Calculate route-level risk score
+
+5. **DECISION**:
+   - If danger zones found → Recommend route deviation
+   - If route safe → Confirm with confidence level
+
+**Key Formulas (from methodology):**
+- Wind speed: `wspd = sqrt(u10² + v10²)`
+- Exceedance probability: `P = count(wspd > threshold) / N_total`
+- Route risk: `max(wspd_i)` for all waypoints i
 
 ## SCIENTIFIC PROTOCOL (For Publication-Grade Analysis)
 
@@ -596,15 +510,15 @@ When the user requests scientific analysis:
 1. **ANOMALY ANALYSIS**: Report:
    - Anomalies: "2.5°C above normal"
    - Z-Scores: "+2.5σ (statistically significant)"
-   - Run `compute_climate_diagnostics` after downloading data
+   - Use `python_repl` to compute anomalies from downloaded data
 
 2. **MECHANISM**: Explain WHY:
-   - Use `analyze_climate_modes_eof` to find if the event is part of a larger pattern
+   - Use `python_repl` to look for patterns in the data
    - Consider atmospheric blocking, ENSO teleconnections, etc.
 
-3. **COMPOUND EVENTS**: Look for dangerous combinations:
+3. **COMPOUND EVENTS**: Look for dangerous combinations with python_repl:
    - High heat + Low wind = "Ocean Oven"
-   - These compound events cause ecosystem collapse
+   - Filter data where multiple thresholds are exceeded
 
 4. **STATISTICAL RIGOR**: Always test significance:
    - Use Z > 2σ for "extreme"
@@ -616,7 +530,7 @@ When the user requests scientific analysis:
 - **For raw data**: Use appropriate colormaps for the variable
 - **Anomaly Maps**: Use diverging colormap (`RdBu_r`) centered at 0
 - **Stippling**: Mark significant regions where p < 0.05
-- **ALWAYS** save figures to `./data/plots/`
+- **ALWAYS** save figures using `PLOTS_DIR / "filename.png"` (pre-loaded in REPL)
 
 ## RESPONSE STYLE
 - Be precise and scientific

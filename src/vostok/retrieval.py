@@ -238,27 +238,86 @@ def retrieve_era5_data(
             # ERA5 latitude is stored 90 -> -90 (descending)
             lat_slice = slice(max_latitude, min_latitude)
 
-            # Handle longitude wrapping (ERA5 uses 0-360)
-            req_min = min_longitude % 360
-            req_max = max_longitude % 360
-
-            if req_min > req_max:
-                # Crosses prime meridian
-                lon_slice = slice(req_min, 359.75)
-                logger.warning("Region crosses prime meridian - taking eastern portion")
+            # Handle longitude - ERA5 uses 0-360 but we accept -180 to 180
+            # CRITICAL: If coordinates are in Europe (-10 to 30), we need to 
+            # convert to 0-360 for ERA5's coordinate system
+            
+            # Special case: Full world range (-180 to 180)
+            # Both become 180 after % 360, which creates empty slice!
+            if min_longitude == -180 and max_longitude == 180:
+                req_min = 0.0
+                req_max = 360.0
+            elif min_longitude < 0:
+                # Convert -180/+180 to 0-360 for ERA5
+                # e.g., -0.9 becomes 359.1
+                req_min = min_longitude % 360
+                req_max = max_longitude if max_longitude >= 0 else max_longitude % 360
             else:
+                req_min = min_longitude
+                req_max = max_longitude if max_longitude >= 0 else max_longitude % 360
+            
+            # Now handle the actual slicing
+            # If min > max after conversion, it means we span the prime meridian (0°)
+            # e.g., req_min=359.1 (was -0.9) and req_max=25.9 means we need 359.1->360 + 0->25.9
+            if req_min > req_max:
+                # Crosses prime meridian in ERA5's 0-360 system
+                # We need to get two slices and concatenate
+                logger.info(f"Region spans prime meridian: {req_min:.1f}° to {req_max:.1f}° (ERA5 coords)")
+                
+                # Get western portion (from req_min to 360)
+                west_slice = slice(req_min, 360.0)
+                # Get eastern portion (from 0 to req_max)
+                east_slice = slice(0.0, req_max)
+                
+                # Subset both portions
+                logger.info("Subsetting data (two-part: west + east of prime meridian)...")
+                subset_west = ds[short_var].sel(
+                    time=slice(start_date, end_date),
+                    latitude=lat_slice,
+                    longitude=west_slice,
+                )
+                subset_east = ds[short_var].sel(
+                    time=slice(start_date, end_date),
+                    latitude=lat_slice,
+                    longitude=east_slice,
+                )
+                
+                # Convert western longitudes from 360+ to negative (for -180/+180 output)
+                # e.g., 359.1 -> -0.9
+                subset_west = subset_west.assign_coords(
+                    longitude=subset_west.longitude - 360
+                )
+                
+                # Concatenate along longitude
+                import xarray as xr
+                subset = xr.concat([subset_west, subset_east], dim='longitude')
+            else:
+                # Normal case - no prime meridian crossing
                 lon_slice = slice(req_min, req_max)
 
-            # Subset the data
-            logger.info("Subsetting data...")
-            subset = ds[short_var].sel(
-                time=slice(start_date, end_date),
-                latitude=lat_slice,
-                longitude=lon_slice,
-            )
+                # Subset the data
+                logger.info("Subsetting data...")
+                subset = ds[short_var].sel(
+                    time=slice(start_date, end_date),
+                    latitude=lat_slice,
+                    longitude=lon_slice,
+                )
 
             # Convert to dataset
             ds_out = subset.to_dataset(name=short_var)
+
+            # Check for empty time dimension (no data in requested range)
+            if ds_out.dims.get('time', 0) == 0:
+                # Get actual data availability
+                time_max = ds['time'].max().values
+                import numpy as np
+                last_available = str(np.datetime_as_string(time_max, unit='D'))
+                return (
+                    f"Error: No data available for the requested time range.\\n"
+                    f"Requested: {start_date} to {end_date}\\n"
+                    f"ERA5 data on Arraylake is available until {last_available}.\\n\\n"
+                    f"Please request dates up to {last_available}."
+                )
 
             # Check for empty data (all NaNs)
             # We use .compute() to ensure we actually check the values if they are lazy

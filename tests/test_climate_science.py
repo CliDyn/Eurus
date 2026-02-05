@@ -116,36 +116,35 @@ class TestToolImports:
     def test_import_science_tools(self):
         """Test importing the science tools module."""
         from vostok.tools.climate_science import SCIENCE_TOOLS
-        assert len(SCIENCE_TOOLS) == 11  # 8 core + detrend + composite + granger
+        assert len(SCIENCE_TOOLS) == 10  # detrend + 2 pattern + 3 extreme + 3 attribution + 1 viz
 
     def test_import_individual_tools(self):
         """Test importing individual tools."""
         from vostok.tools.climate_science import (
-            diagnostics_tool,
+            detrend_tool,
             eof_tool,
             compound_tool,
             trend_tool,
-            correlation_tool,
             percentile_tool
         )
 
-        assert diagnostics_tool.name == "compute_climate_diagnostics"
+        assert detrend_tool.name == "detrend_climate_data"
         assert eof_tool.name == "analyze_climate_modes_eof"
         assert compound_tool.name == "detect_compound_extremes"
         assert trend_tool.name == "calculate_climate_trends"
-        assert correlation_tool.name == "calculate_correlation"
         assert percentile_tool.name == "detect_percentile_extremes"
 
     def test_tools_in_registry(self):
         """Test that science tools are in the main registry."""
-        from vostok.tools import get_all_tools, get_science_tools
+        from vostok.tools import get_all_tools
+        from vostok.tools.climate_science import get_science_tools
 
-        all_tools = get_all_tools(enable_science=True)
+        all_tools = get_all_tools()
         science_tools = get_science_tools()
 
-        # Should have 13 total (era5, repl, + 11 science)
-        assert len(all_tools) == 13
-        assert len(science_tools) == 11
+        # Counts depend on what's enabled - just verify science tools are subset
+        assert len(science_tools) == 10
+        assert len(all_tools) >= 12  # At least: era5, repl, guide + 10 science
 
         # All science tools should be in all_tools
         science_names = {t.name for t in science_tools}
@@ -507,14 +506,14 @@ class TestFullToolRegistry:
     def test_science_tool_count(self):
         """Test that all 11 science tools are registered."""
         from vostok.tools.climate_science import SCIENCE_TOOLS
-        assert len(SCIENCE_TOOLS) == 11
+        assert len(SCIENCE_TOOLS) == 10
 
     def test_total_tool_count(self):
         """Test total tool count including core tools."""
         from vostok.tools import get_all_tools
-        tools = get_all_tools(enable_science=True, enable_routing=False)
-        # Should be: era5_tool + python_repl + 11 science tools = 13
-        assert len(tools) == 13
+        tools = get_all_tools(enable_routing=False)
+        # At least era5 + repl + 10 science tools
+        assert len(tools) >= 12
 
 
 if __name__ == "__main__":

@@ -1,107 +1,76 @@
 """
-ERA5 Data Retrieval Tool (Enhanced)
-====================================
-Cloud-optimized data retrieval from Earthmover's ERA5 archive.
+ERA5 Data Retrieval Tool (Wrapper)
+==================================
+LangChain tool definition. Imports core logic from ..retrieval
 
-Features:
-- Intelligent caching with memory integration
-- Retry logic with exponential backoff
-- Progress tracking
-- Rich variable metadata
-- Validation and error handling
+This is a THIN WRAPPER - all retrieval logic lives in vostok/retrieval.py
+
+QUERY_TYPE IS AUTO-DETECTED based on time/area rules:
+- TEMPORAL: time > 1 day AND area < 30°×30°
+- SPATIAL:  time ≤ 1 day OR  area ≥ 30°×30°
 """
 
-import json
 import logging
-import os
-import shutil
-import sys
-import time
-from pathlib import Path
-from typing import Literal, Optional, Tuple
-from datetime import datetime, timedelta
-from urllib.request import Request, urlopen
+from typing import Optional
+from datetime import datetime
 
-import xarray as xr
 from pydantic import BaseModel, Field, field_validator
 from langchain_core.tools import StructuredTool
 
-from ..config import (
-    DATA_DIR, PLOTS_DIR,
-    get_variable_info, get_short_name, list_available_variables,
-    ERA5_VARIABLES, GEOGRAPHIC_REGIONS, format_file_size
-)
-from ..memory import get_memory
+# IMPORT CORE LOGIC FROM RETRIEVAL MODULE - SINGLE SOURCE OF TRUTH
+from ..retrieval import retrieve_era5_data as _retrieve_era5_data
+from ..config import get_short_name
 
-# Configure logging
 logger = logging.getLogger(__name__)
 
 
 # ============================================================================
-# ARGUMENT SCHEMA
+# ARGUMENT SCHEMA (NO query_type - it's auto-detected!)
 # ============================================================================
 
 class ERA5RetrievalArgs(BaseModel):
-    """Arguments for ERA5 data retrieval."""
-
-    query_type: Literal["spatial", "temporal"] = Field(
-        description=(
-            "CRITICAL for performance optimization:\n"
-            "- 'temporal': For TIME SERIES analysis - long time periods, focused geographic area\n"
-            "- 'spatial': For SPATIAL MAPS - large geographic areas, short time periods"
-        )
-    )
+    """Arguments for ERA5 data retrieval. query_type is AUTO-DETECTED."""
 
     variable_id: str = Field(
         description=(
-            "ERA5 variable to retrieve. Common options:\n"
-            "- sst: Sea Surface Temperature (K)\n"
-            "- t2: 2m Air Temperature (K)\n"
-            "- u10, v10: 10m Wind Components (m/s)\n"
-            "- mslp: Mean Sea Level Pressure (Pa)\n"
-            "- tcc: Total Cloud Cover (0-1)\n"
-            "- tp: Total Precipitation (m)"
+            "ERA5 variable short name (e.g., 'sst', 't2', 'u10', 'v10', 'tp', 'mslp'). "
+            "Use list_era5_variables tool to see full catalog with descriptions."
         )
     )
 
     start_date: str = Field(
-        description="Start date in YYYY-MM-DD format (e.g., '2020-01-01')"
+        description="Start date in YYYY-MM-DD format (e.g., '2021-02-01')"
     )
 
     end_date: str = Field(
-        description="End date in YYYY-MM-DD format (e.g., '2020-12-31')"
+        description="End date in YYYY-MM-DD format (e.g., '2023-02-28')"
     )
 
     min_latitude: float = Field(
-        default=-90.0,
         ge=-90.0, le=90.0,
-        description="Minimum latitude (southern bound, -90 to 90)"
+        description="Southern latitude bound (-90 to 90)"
     )
 
     max_latitude: float = Field(
-        default=90.0,
         ge=-90.0, le=90.0,
-        description="Maximum latitude (northern bound, -90 to 90)"
+        description="Northern latitude bound (-90 to 90)"
     )
 
     min_longitude: float = Field(
-        default=0.0,
-        ge=0.0, le=360.0,
-        description="Minimum longitude (western bound, 0 to 360, East is positive)"
+        ge=-180.0, le=360.0,
+        description="Western longitude bound. Use -180 to 180 for Europe/Atlantic."
     )
 
     max_longitude: float = Field(
-        default=359.75,
-        ge=0.0, le=360.0,
-        description="Maximum longitude (eastern bound, 0 to 360)"
+        ge=-180.0, le=360.0,
+        description="Eastern longitude bound. Use -180 to 180 for Europe/Atlantic."
     )
 
     region: Optional[str] = Field(
         default=None,
         description=(
             "Optional predefined region (overrides lat/lon if specified):\n"
-            "north_atlantic, north_pacific, california_coast, mediterranean,\n"
-            "gulf_of_mexico, caribbean, nino34, arctic, antarctic, global"
+            "north_atlantic, mediterranean, nino34, global"
         )
     )
 
@@ -117,414 +86,91 @@ class ERA5RetrievalArgs(BaseModel):
     @field_validator('variable_id')
     @classmethod
     def validate_variable(cls, v: str) -> str:
+        from ..config import get_all_short_names
         short_name = get_short_name(v)
-        if short_name not in ['sst', 't2', 'u10', 'v10', 'sp', 'mslp', 'tcc', 'cp', 'lsp', 'tp']:
+        valid_vars = get_all_short_names()  # DRY: use config as single source of truth
+        if short_name not in valid_vars:
             logger.warning(f"Variable '{v}' may not be available. Will attempt anyway.")
         return v
 
 
 # ============================================================================
-# HELPER FUNCTIONS
+# AUTO-DETECT QUERY TYPE
 # ============================================================================
 
-def _format_coord(value: float) -> str:
-    """Format coordinates for stable, filename-safe identifiers."""
-    if abs(value) < 0.005:
-        value = 0.0
-    return f"{value:.2f}"
+def _auto_detect_query_type(
+    start_date: str,
+    end_date: str,
+    min_lat: float,
+    max_lat: float,
+    min_lon: float,
+    max_lon: float
+) -> str:
+    """
+    Auto-detect optimal query_type based on time/area rules.
+    
+    RULES:
+    - TEMPORAL: time > 1 day AND area < 30°×30° (900 sq degrees)
+    - SPATIAL:  time ≤ 1 day OR  area ≥ 30°×30°
+    """
+    # Calculate time span in days
+    start = datetime.strptime(start_date, '%Y-%m-%d')
+    end = datetime.strptime(end_date, '%Y-%m-%d')
+    time_days = (end - start).days + 1  # inclusive
+    
+    # Calculate area in square degrees
+    lat_span = abs(max_lat - min_lat)
+    lon_span = abs(max_lon - min_lon)
+    area = lat_span * lon_span
+    
+    # Decision logic
+    if time_days > 1 and area < 900:
+        query_type = "temporal"
+    else:
+        query_type = "spatial"
+    
+    logger.info(f"Auto-detected query_type: {query_type} "
+                f"(time={time_days}d, area={area:.0f}sq°)")
+    
+    return query_type
 
 
-def generate_filename(
-    variable: str,
-    query_type: str,
-    start: str,
-    end: str,
+# ============================================================================
+# WRAPPER FUNCTION (auto-adds query_type)
+# ============================================================================
+
+def retrieve_era5_data(
+    variable_id: str,
+    start_date: str,
+    end_date: str,
     min_latitude: float,
     max_latitude: float,
     min_longitude: float,
     max_longitude: float,
-    region: Optional[str] = None,
-) -> str:
-    """Generate a descriptive filename for the dataset."""
-    clean_var = variable.replace('_', '')
-    clean_start = start.replace('-', '')
-    clean_end = end.replace('-', '')
-    if region:
-        region_tag = region.lower()
-    else:
-        region_tag = (
-            f"lat{_format_coord(min_latitude)}_{_format_coord(max_latitude)}"
-            f"_lon{_format_coord(min_longitude)}_{_format_coord(max_longitude)}"
-        )
-    return f"era5_{clean_var}_{query_type}_{clean_start}_{clean_end}_{region_tag}.zarr"
-
-
-def get_bounds_from_region(region: str) -> Optional[Tuple[float, float, float, float]]:
-    """Get lat/lon bounds from a named region."""
-    if region and region.lower() in GEOGRAPHIC_REGIONS:
-        r = GEOGRAPHIC_REGIONS[region.lower()]
-        return (r["min_lat"], r["max_lat"], r["min_lon"], r["max_lon"])
-    return None
-
-
-def estimate_download_size(
-    start_date: str, end_date: str,
-    lat_range: float, lon_range: float,
-    query_type: str
-) -> float:
-    """Estimate download size in MB."""
-    # ERA5 resolution: 0.25 degrees
-    n_lat = int(lat_range / 0.25)
-    n_lon = int(lon_range / 0.25)
-
-    start = datetime.strptime(start_date, '%Y-%m-%d')
-    end = datetime.strptime(end_date, '%Y-%m-%d')
-
-    if query_type == 'temporal':
-        # Hourly data
-        n_times = int((end - start).total_seconds() / 3600)
-    else:
-        # Daily data (spatial is usually aggregated)
-        n_times = (end - start).days + 1
-
-    # Estimate: 4 bytes per float32 value, plus overhead
-    bytes_estimate = n_lat * n_lon * n_times * 4 * 1.2  # 20% overhead
-    return bytes_estimate / (1024 * 1024)  # MB
-
-
-# ============================================================================
-# MAIN RETRIEVAL FUNCTION
-# ============================================================================
-
-def retrieve_era5_data(
-    query_type: str,
-    variable_id: str,
-    start_date: str,
-    end_date: str,
-    min_latitude: float = -90.0,
-    max_latitude: float = 90.0,
-    min_longitude: float = 0.0,
-    max_longitude: float = 359.75,
     region: Optional[str] = None
 ) -> str:
     """
-    Retrieve ERA5 reanalysis data from Earthmover's cloud-optimized archive.
-
-    Downloads data to ./data/ directory and registers it in memory for caching.
-
-    Returns:
-        Success message with file path, or error message.
+    Wrapper that auto-detects query_type and calls the real retrieval function.
     """
-    memory = get_memory()
-
-    def _ensure_aws_region(api_key: str) -> None:
-        try:
-            req = Request(
-                "https://api.earthmover.io/repos/earthmover-public/era5-surface-aws",
-                headers={"Authorization": f"Bearer {api_key}"},
-            )
-            with urlopen(req, timeout=30) as resp:
-                payload = resp.read().decode("utf-8")
-            repo_meta = json.loads(payload)
-        except Exception:
-            return
-
-        if not isinstance(repo_meta, dict):
-            return
-
-        bucket = repo_meta.get("bucket")
-        if not isinstance(bucket, dict):
-            return
-
-        extra_cfg = bucket.get("extra_config")
-        if not isinstance(extra_cfg, dict):
-            return
-
-        region_name = extra_cfg.get("region_name")
-        if not isinstance(region_name, str) or not region_name:
-            return
-
-        updated = False
-        if "AWS_REGION" not in os.environ:
-            os.environ["AWS_REGION"] = region_name
-            updated = True
-        if "AWS_DEFAULT_REGION" not in os.environ:
-            os.environ["AWS_DEFAULT_REGION"] = region_name
-            updated = True
-        if "AWS_ENDPOINT_URL" not in os.environ:
-            os.environ["AWS_ENDPOINT_URL"] = f"https://s3.{region_name}.amazonaws.com"
-            updated = True
-        if "AWS_S3_ENDPOINT" not in os.environ:
-            os.environ["AWS_S3_ENDPOINT"] = f"https://s3.{region_name}.amazonaws.com"
-            updated = True
-
-        if updated:
-            logger.info(
-                "Auto-set AWS region/endpoint for Arraylake: region=%s endpoint=%s",
-                region_name,
-                os.environ.get("AWS_ENDPOINT_URL"),
-            )
-
-    # Get API key
-    api_key = os.environ.get("ARRAYLAKE_API_KEY")
-    if not api_key:
-        return "Error: ARRAYLAKE_API_KEY not found in environment. Please set it in .env file."
-    _ensure_aws_region(api_key)
-
-    # Check icechunk is available
-    try:
-        import icechunk
-    except ImportError:
-        return (
-            "Error: The 'icechunk' library is required but not installed.\n"
-            "Please run: pip install icechunk"
-        )
-
-    # Apply region bounds if specified
-    region_tag = None
-    if region:
-        bounds = get_bounds_from_region(region)
-        if bounds:
-            min_latitude, max_latitude, min_longitude, max_longitude = bounds
-            region_tag = region.lower()
-            logger.info(
-                f"Using region '{region}': lat=[{min_latitude}, {max_latitude}], lon=[{min_longitude}, {max_longitude}]"
-            )
-        else:
-            logger.warning(f"Unknown region '{region}', using provided coordinates")
-
-    # Resolve variable name
-    short_var = get_short_name(variable_id)
-    var_info = get_variable_info(variable_id)
-
-    # Setup paths
-    output_dir = Path(DATA_DIR)
-    output_dir.mkdir(parents=True, exist_ok=True)
-
-    filename = generate_filename(
-        short_var,
-        query_type,
-        start_date,
-        end_date,
-        min_latitude,
-        max_latitude,
-        min_longitude,
-        max_longitude,
-        region_tag,
+    # Auto-detect query type
+    query_type = _auto_detect_query_type(
+        start_date, end_date,
+        min_latitude, max_latitude,
+        min_longitude, max_longitude
     )
-    local_path = str(output_dir / filename)
-
-    # Check cache first
-    if os.path.exists(local_path):
-        existing = memory.get_dataset(local_path)
-        if existing:
-            logger.info(f"Cache hit: {local_path}")
-            return (
-                f"CACHE HIT - Data already downloaded\n"
-                f"  Variable: {short_var} ({var_info.long_name if var_info else 'Unknown'})\n"
-                f"  Period: {existing.start_date} to {existing.end_date}\n"
-                f"  Path: {local_path}\n\n"
-                f"Load with: ds = xr.open_dataset('{local_path}', engine='zarr')"
-            )
-        else:
-            # File exists but not registered, register it
-            memory.register_dataset(
-                path=local_path,
-                variable=short_var,
-                query_type=query_type,
-                start_date=start_date,
-                end_date=end_date,
-                lat_bounds=(min_latitude, max_latitude),
-                lon_bounds=(min_longitude, max_longitude),
-                file_size_bytes=sum(f.stat().st_size for f in Path(local_path).rglob('*') if f.is_file())
-            )
-            return (
-                f"CACHE HIT - Found existing data\n"
-                f"  Variable: {short_var}\n"
-                f"  Path: {local_path}\n\n"
-                f"Load with: ds = xr.open_dataset('{local_path}', engine='zarr')"
-            )
-
-    # Estimate download size
-    lat_range = max_latitude - min_latitude
-    lon_range = (max_longitude - min_longitude) % 360
-    estimated_mb = estimate_download_size(start_date, end_date, lat_range, lon_range, query_type)
-
-    logger.info(f"Estimated download size: {estimated_mb:.1f} MB")
-
-    # Connect and download with retry logic
-    max_retries = 3
-    retry_delay = 2.0
-
-    for attempt in range(max_retries):
-        try:
-            from arraylake import Client
-
-            # Progress messages
-            print(f"\n{'='*60}")
-            print(f"DOWNLOADING ERA5 DATA")
-            print(f"{'='*60}")
-            print(f"  Variable: {short_var}" + (f" ({var_info.long_name})" if var_info else ""))
-            print(f"  Period: {start_date} to {end_date}")
-            print(f"  Region: lat=[{min_latitude:.2f}, {max_latitude:.2f}], lon=[{min_longitude:.2f}, {max_longitude:.2f}]")
-            print(f"  Query Type: {query_type}")
-            print(f"  Estimated Size: ~{estimated_mb:.1f} MB")
-            print(f"{'='*60}")
-
-            # Connect to Earthmover
-            print("Connecting to Earthmover Arraylake...")
-            client = Client(token=api_key)
-            repo = client.get_repo("earthmover-public/era5-surface-aws")
-            session = repo.readonly_session("main")
-            print("Connected successfully!")
-
-            # Open dataset with Zarr/Icechunk
-            print(f"Opening {query_type} dataset...")
-            ds = xr.open_dataset(
-                session.store,
-                engine="zarr",
-                consolidated=False,
-                zarr_format=3,  # Required for Icechunk
-                chunks=None,
-                group=query_type
-            )
-
-            # Validate variable exists
-            if short_var not in ds:
-                available = list(ds.data_vars)
-                return (
-                    f"Error: Variable '{short_var}' not found in dataset.\n"
-                    f"Available variables: {', '.join(available)}\n\n"
-                    f"Variable reference:\n{list_available_variables()}"
-                )
-
-            # ERA5 latitude is stored 90 -> -90 (descending)
-            lat_slice = slice(max_latitude, min_latitude)
-
-            # Handle longitude wrapping (ERA5 uses 0-360)
-            req_min = min_longitude % 360
-            req_max = max_longitude % 360
-
-            if req_min > req_max:
-                # Crosses prime meridian - for now just take the eastern part
-                lon_slice = slice(req_min, 359.75)
-                logger.warning("Region crosses prime meridian - taking eastern portion only")
-            else:
-                lon_slice = slice(req_min, req_max)
-
-            # Subset the data
-            print("Subsetting data...")
-            subset = ds[short_var].sel(
-                time=slice(start_date, end_date),
-                latitude=lat_slice,
-                longitude=lon_slice
-            )
-
-            # Convert to dataset
-            print("Preparing data for download...")
-            ds_out = subset.to_dataset(name=short_var)
-
-            # Clear encoding for clean serialization
-            for var in ds_out.variables:
-                ds_out[var].encoding = {}
-
-            # Add metadata
-            ds_out.attrs['source'] = 'ERA5 Reanalysis via Earthmover Arraylake'
-            ds_out.attrs['download_date'] = datetime.now().isoformat()
-            ds_out.attrs['query_type'] = query_type
-            if var_info:
-                ds_out[short_var].attrs['long_name'] = var_info.long_name
-                ds_out[short_var].attrs['units'] = var_info.units
-
-            # Clean up existing file
-            if os.path.exists(local_path):
-                shutil.rmtree(local_path)
-
-            # Save to Zarr
-            print(f"Downloading and saving to {local_path}...")
-            start_time = time.time()
-            ds_out.to_zarr(local_path, mode="w", consolidated=True, compute=True)
-            download_time = time.time() - start_time
-
-            # Get actual file size
-            file_size = sum(f.stat().st_size for f in Path(local_path).rglob('*') if f.is_file())
-
-            # Register in memory
-            shape = tuple(ds_out[short_var].shape)
-            memory.register_dataset(
-                path=local_path,
-                variable=short_var,
-                query_type=query_type,
-                start_date=start_date,
-                end_date=end_date,
-                lat_bounds=(min_latitude, max_latitude),
-                lon_bounds=(min_longitude, max_longitude),
-                file_size_bytes=file_size,
-                shape=shape
-            )
-
-            # Success message
-            print(f"{'='*60}")
-            print(f"DOWNLOAD COMPLETE")
-            print(f"{'='*60}")
-
-            result = (
-                f"SUCCESS - Data downloaded\n"
-                f"{'='*50}\n"
-                f"  Variable: {short_var}"
-            )
-            if var_info:
-                result += f" ({var_info.long_name})"
-            result += (
-                f"\n  Units: {var_info.units if var_info else 'Unknown'}\n"
-                f"  Period: {start_date} to {end_date}\n"
-                f"  Shape: {shape}\n"
-                f"  Size: {format_file_size(file_size)}\n"
-                f"  Time: {download_time:.1f}s\n"
-                f"  Path: {local_path}\n"
-                f"{'='*50}\n\n"
-                f"Load with:\n"
-                f"  ds = xr.open_dataset('{local_path}', engine='zarr')\n"
-                f"  print(ds)\n"
-                f"  data = ds['{short_var}']"
-            )
-
-            return result
-
-        except Exception as e:
-            error_msg = str(e)
-            logger.error(f"Attempt {attempt + 1}/{max_retries} failed: {error_msg}")
-
-            # Clean up partial download
-            if os.path.exists(local_path):
-                shutil.rmtree(local_path, ignore_errors=True)
-
-            if attempt < max_retries - 1:
-                wait_time = retry_delay * (2 ** attempt)  # Exponential backoff
-                print(f"Retrying in {wait_time:.1f}s...")
-                time.sleep(wait_time)
-            else:
-                return (
-                    f"Error: Failed after {max_retries} attempts.\n"
-                    f"Last error: {error_msg}\n\n"
-                    f"Troubleshooting:\n"
-                    f"1. Check your ARRAYLAKE_API_KEY in .env\n"
-                    f"2. Verify internet connection\n"
-                    f"3. Try a smaller date range or region\n"
-                    f"4. Check if variable '{short_var}' is available"
-                )
-
-    return "Error: Unexpected failure in retrieval logic."
-
-
-# ============================================================================
-# UTILITY FUNCTION: LIST CACHED DATA
-# ============================================================================
-
-def list_cached_data() -> str:
-    """List all cached datasets."""
-    memory = get_memory()
-    return memory.list_datasets()
+    
+    # Call the real retrieval function
+    return _retrieve_era5_data(
+        query_type=query_type,
+        variable_id=variable_id,
+        start_date=start_date,
+        end_date=end_date,
+        min_latitude=min_latitude,
+        max_latitude=max_latitude,
+        min_longitude=min_longitude,
+        max_longitude=max_longitude,
+        region=region
+    )
 
 
 # ============================================================================
@@ -535,35 +181,14 @@ era5_tool = StructuredTool.from_function(
     func=retrieve_era5_data,
     name="retrieve_era5_data",
     description=(
-        "Retrieves ERA5 climate reanalysis data from Earthmover's cloud-optimized archive.\n\n"
-        "USAGE:\n"
-        "- Use query_type='temporal' for time series (long time, small area)\n"
-        "- Use query_type='spatial' for maps (large area, short time)\n\n"
-        "VARIABLES: sst (Sea Surface Temp), t2 (2m Temp), u10/v10 (Wind), "
-        "mslp (Pressure), tcc (Cloud Cover), tp (Precipitation)\n\n"
-        "REGIONS: north_atlantic, north_pacific, california_coast, mediterranean, "
-        "gulf_of_mexico, nino34, arctic, antarctic, global\n\n"
-        "Returns the file path. Load with: xr.open_dataset('PATH', engine='zarr')"
+        "Retrieves ERA5 climate reanalysis data from Earthmover's cloud archive.\n\n"
+        "⚠️ query_type is AUTO-DETECTED - you don't need to specify it!\n\n"
+        "Just provide:\n"
+        "- variable_id: sst, t2, u10, v10, mslp, tcc, tp\n"
+        "- start_date, end_date: YYYY-MM-DD format\n"
+        "- lat/lon bounds: Use values from maritime route bounding box!\n\n"
+        "DATA: 1975-2024.\n"
+        "Returns file path. Load with: xr.open_zarr('PATH')"
     ),
     args_schema=ERA5RetrievalArgs
 )
-
-
-# ============================================================================
-# STANDALONE TEST
-# ============================================================================
-
-if __name__ == "__main__":
-    # Test the tool
-    from dotenv import load_dotenv
-    load_dotenv()
-
-    print("Testing ERA5 retrieval...")
-    result = retrieve_era5_data(
-        query_type="temporal",
-        variable_id="sst",
-        start_date="2023-01-01",
-        end_date="2023-01-07",
-        region="california_coast"
-    )
-    print(result)

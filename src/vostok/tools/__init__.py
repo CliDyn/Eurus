@@ -1,38 +1,23 @@
 """
 Vostok Tools Registry
 =====================
-Central hub for all agent skills (tools).
+Central hub for all agent tools.
 
-Tools are organized by category:
+Tools:
 - Data Retrieval: ERA5 data access
-- Analysis: Python REPL for custom analysis
-- Climate Science: Statistical methods for attribution & discovery
+- Analysis: Python REPL for custom analysis  
+- Guides: Methodology and visualization guidance
 - Routing: Maritime navigation (optional)
 """
 
 from typing import List
 from langchain_core.tools import BaseTool
 
-# Import existing core tools
+# Import core tools
 from .era5 import era5_tool
-from .repl import SuperbPythonREPLTool
+from .repl import PythonREPLTool
 from .routing import routing_tool
-
-# Import climate science tools (the "Physics Brain")
-from .climate_science import (
-    diagnostics_tool,      # Z-scores & anomalies
-    detrend_tool,          # Remove warming trend
-    eof_tool,              # Pattern discovery (EOF/PCA)
-    compound_tool,         # Ocean Oven detection
-    trend_tool,            # Trend analysis with significance
-    correlation_tool,      # Teleconnection analysis
-    percentile_tool,       # Extreme event detection
-    index_tool,            # Climate indices (ENSO, NAO, etc.)
-    return_period_tool,    # Extreme Value Theory (GEV)
-    composite_tool,        # Composite maps for mechanism discovery
-    granger_tool,          # Granger causality (X -> Y)
-    SCIENCE_TOOLS          # All science tools as a list
-)
+from .analysis_guide import analysis_guide_tool, visualization_guide_tool
 
 # Optional dependency check for routing
 try:
@@ -43,15 +28,15 @@ except ImportError:
 
 
 def get_all_tools(
-    enable_routing: bool = False,
-    enable_science: bool = True
+    enable_routing: bool = True,
+    enable_guide: bool = True
 ) -> List[BaseTool]:
     """
     Return a list of all available tools for the agent.
 
     Args:
-        enable_routing: If True, includes the maritime routing and risk assessment tools.
-        enable_science: If True, includes climate science statistical tools (default: True).
+        enable_routing: If True, includes the maritime routing tool (default: True).
+        enable_guide: If True, includes the guide tools (default: True).
 
     Returns:
         List of LangChain tools for the agent.
@@ -59,26 +44,22 @@ def get_all_tools(
     # Core tools: data retrieval + Python analysis
     tools = [
         era5_tool,
-        SuperbPythonREPLTool(working_dir=".")
+        PythonREPLTool(working_dir=".")
     ]
 
-    # Science tools: statistical analysis for publication-grade research
-    if enable_science:
-        tools.extend(SCIENCE_TOOLS)
+    # Guide tools: methodology and visualization guidance
+    if enable_guide:
+        tools.append(analysis_guide_tool)
+        tools.append(visualization_guide_tool)
 
-    # Routing tools: maritime navigation (optional)
+    # Routing tools: maritime navigation
     if enable_routing:
         if HAS_ROUTING_DEPS:
             tools.append(routing_tool)
         else:
-            print("WARNING: Routing tools requested but dependencies (scgraph, global-land-mask) are missing.")
+            print("WARNING: Routing tools requested but dependencies (scgraph) are missing.")
 
     return tools
-
-
-def get_science_tools() -> List[BaseTool]:
-    """Return only the climate science analysis tools."""
-    return SCIENCE_TOOLS.copy()
 
 
 # Alias for backward compatibility
