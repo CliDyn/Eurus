@@ -6,8 +6,8 @@ ERA5 MCP Server
 Model Context Protocol server for ERA5 climate data retrieval.
 
 Usage:
-    vostok-mcp                          # If installed as package
-    python -m vostok.server         # Direct execution
+    eurus-mcp                          # If installed as package
+    python -m eurus.server         # Direct execution
 
 Configuration via environment variables:
     ARRAYLAKE_API_KEY    - Required for data access
@@ -53,14 +53,14 @@ except ImportError:
     sys.exit(1)
 
 # Import ERA5 components
-from vostok.config import (
+from eurus.config import (
     list_available_variables,
 )
-from vostok.memory import get_memory
-from vostok.tools.era5 import retrieve_era5_data, ERA5RetrievalArgs
+from eurus.memory import get_memory
+from eurus.tools.era5 import retrieve_era5_data, ERA5RetrievalArgs
 
 # Import Maritime Routing tool
-from vostok.tools.routing import (
+from eurus.tools.routing import (
     calculate_maritime_route,
     RouteArgs,
     HAS_ROUTING_DEPS,

@@ -1,5 +1,5 @@
 """
-Vostok Tools Registry
+Eurus Tools Registry
 =====================
 Central hub for all agent tools.
 

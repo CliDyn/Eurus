@@ -1,5 +1,5 @@
 """
-End-to-End Tests for Vostok
+End-to-End Tests for Eurus
 ===========================
 These tests use REAL API calls to verify the complete workflow.
 Requires valid API keys in .env file.
@@ -27,7 +27,7 @@ load_dotenv()
 @pytest.fixture(scope="module")
 def temp_data_dir():
     """Create temporary data directory for tests."""
-    temp_dir = tempfile.mkdtemp(prefix="vostok_e2e_")
+    temp_dir = tempfile.mkdtemp(prefix="eurus_e2e_")
     yield temp_dir
     # Cleanup after all tests
     shutil.rmtree(temp_dir, ignore_errors=True)
@@ -55,8 +55,8 @@ class TestERA5Retrieval:
         E2E Test: Retrieve SST data for a small region and short time period.
         This tests the complete retrieval pipeline.
         """
-        from vostok.retrieval import retrieve_era5_data
-        from vostok.memory import reset_memory
+        from eurus.retrieval import retrieve_era5_data
+        from eurus.memory import reset_memory
         
         # Reset memory for clean state
         reset_memory()
@@ -86,8 +86,8 @@ class TestERA5Retrieval:
         E2E Test: Retrieve 2m temperature as spatial data.
         Tests spatial query type.
         """
-        from vostok.retrieval import retrieve_era5_data
-        from vostok.memory import reset_memory
+        from eurus.retrieval import retrieve_era5_data
+        from eurus.memory import reset_memory
         
         reset_memory()
         
@@ -113,8 +113,8 @@ class TestERA5Retrieval:
         Tests the full data integrity pipeline.
         """
         import xarray as xr
-        from vostok.retrieval import retrieve_era5_data
-        from vostok.memory import reset_memory, get_memory
+        from eurus.retrieval import retrieve_era5_data
+        from eurus.memory import reset_memory, get_memory
         
         reset_memory()
         
@@ -174,7 +174,7 @@ class TestREPLAnalysis:
         """
         E2E Test: Use REPL to perform numpy computation.
         """
-        from vostok.tools.repl import PythonREPLTool
+        from eurus.tools.repl import PythonREPLTool
         
         repl = PythonREPLTool()
         
@@ -196,7 +196,7 @@ print(f"Mean: {mean:.4f}, Std: {std:.4f}")
         """
         E2E Test: Use REPL to create and manipulate pandas DataFrame.
         """
-        from vostok.tools.repl import PythonREPLTool
+        from eurus.tools.repl import PythonREPLTool
         
         repl = PythonREPLTool()
         
@@ -227,9 +227,9 @@ print(f"\\nStats: Mean temp = {df['temperature'].mean():.2f}")
         E2E Test: Retrieve ERA5 data, then analyze it in REPL.
         Full workflow test.
         """
-        from vostok.retrieval import retrieve_era5_data
-        from vostok.tools.repl import PythonREPLTool
-        from vostok.memory import reset_memory
+        from eurus.retrieval import retrieve_era5_data
+        from eurus.tools.repl import PythonREPLTool
+        from eurus.memory import reset_memory
         import xarray as xr
         
         reset_memory()
@@ -300,7 +300,7 @@ class TestClimateIndices:
         E2E Test: Fetch Nino3.4 index from NOAA.
         Tests external API integration.
         """
-        from vostok.tools.climate_science.attribution import fetch_climate_index
+        from eurus.tools.climate_science.attribution import fetch_climate_index
         
         result = fetch_climate_index(
             index_name="nino34",
@@ -318,7 +318,7 @@ class TestClimateIndices:
         """
         E2E Test: Fetch NAO index from NOAA.
         """
-        from vostok.tools.climate_science.attribution import fetch_climate_index
+        from eurus.tools.climate_science.attribution import fetch_climate_index
         
         result = fetch_climate_index(
             index_name="nao",
@@ -344,8 +344,8 @@ class TestMemoryPersistence:
         """
         E2E Test: Verify memory tracks downloaded datasets.
         """
-        from vostok.retrieval import retrieve_era5_data
-        from vostok.memory import reset_memory, get_memory
+        from eurus.retrieval import retrieve_era5_data
+        from eurus.memory import reset_memory, get_memory
         
         reset_memory()
         memory = get_memory()
@@ -385,7 +385,7 @@ class TestRouting:
         """
         E2E Test: Verify routing handles missing dependencies gracefully.
         """
-        from vostok.tools.routing import HAS_ROUTING_DEPS, calculate_maritime_route
+        from eurus.tools.routing import HAS_ROUTING_DEPS, calculate_maritime_route
         
         if not HAS_ROUTING_DEPS:
             # Should return helpful error message

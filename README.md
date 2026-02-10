@@ -1,7 +1,7 @@
-# Vostok - ERA5 Climate Analysis Agent
+# Eurus - ERA5 Climate Analysis Agent
 
 <div align="center">
-  <img src="assets/vostok_logo.jpeg" alt="Vostok Logo" width="300"/>
+  <img src="assets/eurus_logo.jpeg" alt="Eurus Logo" width="300"/>
   
   <h3><b>Next-Generation Oceanographic & Climate Data Intelligence</b></h3>
 
@@ -13,7 +13,7 @@
 
 ---
 
-**Vostok** is a high-performance, intelligent climate analysis agent designed for oceanographers, climate scientists, and data engineers. Built on the cutting-edge **Icechunk** transactional storage engine, Vostok bridges Earthmover's cloud-optimized ERA5 archives with advanced LLM reasoning, enabling seamless, natural language-driven exploration of planetary-scale climate data.
+**Eurus** is a high-performance, intelligent climate analysis agent designed for oceanographers, climate scientists, and data engineers. Built on the cutting-edge **Icechunk** transactional storage engine, Eurus bridges Earthmover's cloud-optimized ERA5 archives with advanced LLM reasoning, enabling seamless, natural language-driven exploration of planetary-scale climate data.
 
 ### ❄️ Powered By
 
@@ -83,7 +83,7 @@ This project is made possible by the incredible open-source work from the **[Ear
 
 ## Usage
 
-Vostok provides three ways to interact with the agent.
+Eurus provides three ways to interact with the agent.
 
 ### 1. Interactive CLI Agent
 The classic terminal experience with rich text output and direct interaction.
@@ -106,12 +106,12 @@ A modern web-based chat interface with rendered plots and easier navigation.
 ```bash
 python web/app.py
 # or
-vostok-web
+eurus-web
 ```
 Access the interface at `http://127.0.0.1:8000`.
 
 ### 3. MCP Server (for Claude / IDEs)
-Integrate Vostok's capabilities directly into Claude Desktop or compatible IDEs using the Model Context Protocol.
+Integrate Eurus's capabilities directly into Claude Desktop or compatible IDEs using the Model Context Protocol.
 
 **Configuration for Claude Desktop:**
 Add the following to your `claude_desktop_config.json`:
@@ -119,9 +119,9 @@ Add the following to your `claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "vostok": {
+    "eurus": {
       "command": "python",
-      "args": ["-m", "vostok.server"],
+      "args": ["-m", "eurus.server"],
       "env": {
         "ARRAYLAKE_API_KEY": "your_key_here",
         "PYTHONPATH": "/absolute/path/to/era_5_agent/src"
@@ -133,14 +133,14 @@ Add the following to your `claude_desktop_config.json`:
 
 Or run directly for testing:
 ```bash
-python -m vostok.server
+python -m eurus.server
 ```
 
 ---
 
 ## Example Queries
 
-Vostok can answer questions like:
+Eurus can answer questions like:
 
 *   **Data Retrieval:** "Show me the sea surface temperature off California for 2023."
 *   **Visualization:** "Plot a time series of temperature anomalies in the North Atlantic."
@@ -163,7 +163,7 @@ Vostok can answer questions like:
 | `tp` | Total Precipitation | m |
 
 ### Predefined Regions
-Vostok knows many regions by name, including:
+Eurus knows many regions by name, including:
 - `north_atlantic`, `south_atlantic`
 - `north_pacific`, `south_pacific`
 - `california_coast`, `gulf_of_mexico`, `caribbean`
@@ -181,7 +181,7 @@ era_5_agent/
 ├── pyproject.toml       # Project configuration
 ├── requirements.txt     # Python dependencies
 ├── src/
-│   └── vostok/
+│   └── eurus/
 │       ├── config.py    # Configuration & Constants
 │       ├── memory.py    # Persistent Memory System
 │       ├── server.py    # MCP Server Entry Point

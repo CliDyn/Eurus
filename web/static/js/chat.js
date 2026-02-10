@@ -1,8 +1,8 @@
 /**
- * Vostok Chat WebSocket Client
+ * Eurus Chat WebSocket Client
  */
 
-class VostokChat {
+class EurusChat {
     constructor() {
         this.ws = null;
         this.messageId = 0;
@@ -45,7 +45,7 @@ class VostokChat {
 
     setupTheme() {
         // Load saved theme or default to dark (neosynth)
-        const savedTheme = localStorage.getItem('vostok-theme') || 'dark';
+        const savedTheme = localStorage.getItem('eurus-theme') || 'dark';
         document.documentElement.setAttribute('data-theme', savedTheme);
         this.updateThemeIcon(savedTheme);
 
@@ -55,7 +55,7 @@ class VostokChat {
                 const currentTheme = document.documentElement.getAttribute('data-theme');
                 const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
                 document.documentElement.setAttribute('data-theme', newTheme);
-                localStorage.setItem('vostok-theme', newTheme);
+                localStorage.setItem('eurus-theme', newTheme);
                 this.updateThemeIcon(newTheme);
             });
         }
@@ -245,7 +245,7 @@ class VostokChat {
             const img = modal.querySelector('img');
             const link = document.createElement('a');
             link.href = img.src;
-            link.download = 'vostok_plot.png';
+            link.download = 'eurus_plot.png';
             link.click();
         });
 
@@ -375,7 +375,7 @@ class VostokChat {
             this.currentAssistantMessage.className = 'message assistant-message';
             this.currentAssistantMessage.innerHTML = `
                 <div class="message-header">
-                    <span class="message-role">Vostok</span>
+                    <span class="message-role">Eurus</span>
                 </div>
                 <div class="message-content markdown-content"></div>
                 <div class="message-plots"></div>
@@ -449,7 +449,7 @@ class VostokChat {
         figure.querySelector('.download-btn').addEventListener('click', () => {
             const link = document.createElement('a');
             link.href = imgSrc;
-            const filename = path ? path.split('/').pop() : 'vostok_plot.png';
+            const filename = path ? path.split('/').pop() : 'eurus_plot.png';
             link.download = filename;
             link.click();
         });
@@ -532,7 +532,7 @@ class VostokChat {
             const link = document.createElement('a');
             link.href = videoSrc;
             const ext = mimetype.includes('gif') ? 'gif' : mimetype.includes('webm') ? 'webm' : 'mp4';
-            const filename = path ? path.split('/').pop() : `vostok_animation.${ext}`;
+            const filename = path ? path.split('/').pop() : `eurus_animation.${ext}`;
             link.download = filename;
             link.click();
         });
@@ -618,5 +618,5 @@ class VostokChat {
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-    window.vostokChat = new VostokChat();
+    window.eurusChat = new EurusChat();
 });

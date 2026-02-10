@@ -17,16 +17,16 @@ import json
 # ============================================================================
 
 class TestServerModule:
-    """Tests for vostok.server module."""
+    """Tests for eurus.server module."""
     
     def test_server_class_exists(self):
         """Test Server class can be imported."""
-        from vostok.server import Server
+        from eurus.server import Server
         assert Server is not None
         
     def test_server_instance_exists(self):
         """Test server instance can be imported."""
-        from vostok.server import server
+        from eurus.server import server
         assert server is not None
 
 
@@ -39,39 +39,39 @@ class TestRetrievalHelpers:
     
     def test_format_coord_positive(self):
         """Test coordinate formatting for positive values."""
-        from vostok.retrieval import _format_coord
+        from eurus.retrieval import _format_coord
         assert _format_coord(25.5) == "25.50"
         
     def test_format_coord_negative(self):
         """Test coordinate formatting for negative values."""
-        from vostok.retrieval import _format_coord
+        from eurus.retrieval import _format_coord
         assert _format_coord(-10.333) == "-10.33"
         
     def test_format_coord_zero(self):
         """Test coordinate formatting for near-zero values."""
-        from vostok.retrieval import _format_coord
+        from eurus.retrieval import _format_coord
         # Values very close to zero should be formatted as 0.00
         result = _format_coord(0.001)
         assert "0.00" in result or "0.01" in result
         
     def test_format_file_size_bytes(self):
         """Test file size formatting for bytes."""
-        from vostok.retrieval import format_file_size
+        from eurus.retrieval import format_file_size
         assert "B" in format_file_size(500)
         
     def test_format_file_size_kb(self):
         """Test file size formatting for kilobytes."""
-        from vostok.retrieval import format_file_size
+        from eurus.retrieval import format_file_size
         assert "KB" in format_file_size(2048)
         
     def test_format_file_size_mb(self):
         """Test file size formatting for megabytes."""
-        from vostok.retrieval import format_file_size
+        from eurus.retrieval import format_file_size
         assert "MB" in format_file_size(5 * 1024 * 1024)
         
     def test_format_file_size_gb(self):
         """Test file size formatting for gigabytes."""
-        from vostok.retrieval import format_file_size
+        from eurus.retrieval import format_file_size
         assert "GB" in format_file_size(5 * 1024 * 1024 * 1024)
 
 
@@ -84,30 +84,30 @@ class TestClimateToolRegistration:
     
     def test_patterns_tools_exist(self):
         """Test pattern analysis tools are registered."""
-        from vostok.tools.climate_science.patterns import PATTERN_TOOLS
+        from eurus.tools.climate_science.patterns import PATTERN_TOOLS
         assert isinstance(PATTERN_TOOLS, list)
         assert len(PATTERN_TOOLS) >= 2  # EOF and Trends
         
     def test_extremes_tools_accessible(self):
         """Test extremes detection tools can be accessed."""
-        from vostok.tools.climate_science import extremes
+        from eurus.tools.climate_science import extremes
         # Just verify module loads correctly
         assert hasattr(extremes, 'percentile_tool')
         
     def test_attribution_tools_exist(self):
         """Test attribution analysis tools are registered."""
-        from vostok.tools.climate_science.attribution import ATTRIBUTION_TOOLS
+        from eurus.tools.climate_science.attribution import ATTRIBUTION_TOOLS
         assert isinstance(ATTRIBUTION_TOOLS, list)
         assert len(ATTRIBUTION_TOOLS) >= 3
         
     def test_diagnostics_tools_exist(self):
         """Test diagnostics tools are registered."""
-        from vostok.tools.climate_science.diagnostics import DIAGNOSTICS_TOOLS
+        from eurus.tools.climate_science.diagnostics import DIAGNOSTICS_TOOLS
         assert isinstance(DIAGNOSTICS_TOOLS, list)
         
     def test_visualization_tool_exists(self):
         """Test visualization guide tool exists."""
-        from vostok.tools.climate_science.visualization import visualization_guide_tool
+        from eurus.tools.climate_science.visualization import visualization_guide_tool
         assert visualization_guide_tool is not None
         assert visualization_guide_tool.name == "get_visualization_guide"
 
@@ -121,12 +121,12 @@ class TestAnalysisGuide:
     
     def test_analysis_guide_tool_exists(self):
         """Test analysis guide tool can be imported."""
-        from vostok.tools.analysis_guide import analysis_guide_tool
+        from eurus.tools.analysis_guide import analysis_guide_tool
         assert analysis_guide_tool is not None
         
     def test_analysis_guide_returns_content(self):
         """Test analysis guide returns useful content."""
-        from vostok.tools.analysis_guide import get_analysis_guide
+        from eurus.tools.analysis_guide import get_analysis_guide
         result = get_analysis_guide("timeseries")
         assert len(result) > 100  # Should have substantial content
 
@@ -140,7 +140,7 @@ class TestERA5ToolValidation:
     
     def test_era5_args_date_validation(self):
         """Test date format validation works."""
-        from vostok.tools.era5 import ERA5RetrievalArgs
+        from eurus.tools.era5 import ERA5RetrievalArgs
         # Valid dates should work
         args = ERA5RetrievalArgs(
             variable_id="sst",
@@ -155,7 +155,7 @@ class TestERA5ToolValidation:
         
     def test_era5_args_latitude_range(self):
         """Test latitude range parameters."""
-        from vostok.tools.era5 import ERA5RetrievalArgs
+        from eurus.tools.era5 import ERA5RetrievalArgs
         args = ERA5RetrievalArgs(
             variable_id="t2",
             start_date="2023-01-01",
@@ -170,7 +170,7 @@ class TestERA5ToolValidation:
         
     def test_era5_args_query_type_field(self):
         """Test that ERA5 args handles optional query_type correctly."""
-        from vostok.tools.era5 import ERA5RetrievalArgs
+        from eurus.tools.era5 import ERA5RetrievalArgs
         args = ERA5RetrievalArgs(
             variable_id="sst",
             start_date="2023-01-01",
@@ -193,7 +193,7 @@ class TestConfigRegions:
     
     def test_get_region_valid(self):
         """Test getting valid predefined region."""
-        from vostok.config import get_region
+        from eurus.config import get_region
         region = get_region("gulf_of_mexico")
         assert region is not None
         assert hasattr(region, 'min_lat')
@@ -201,13 +201,13 @@ class TestConfigRegions:
         
     def test_get_region_case_insensitive(self):
         """Test region lookup is case insensitive."""
-        from vostok.config import get_region
+        from eurus.config import get_region
         region = get_region("GULF_OF_MEXICO")
         assert region is not None
         
     def test_list_regions_output(self):
         """Test list_regions returns formatted string."""
-        from vostok.config import list_regions
+        from eurus.config import list_regions
         output = list_regions()
         assert "gulf" in output.lower() or "region" in output.lower()
 
@@ -221,14 +221,14 @@ class TestMemoryIntegration:
     
     def test_memory_manager_create(self):
         """Test MemoryManager can be created."""
-        from vostok.memory import MemoryManager, reset_memory
+        from eurus.memory import MemoryManager, reset_memory
         reset_memory()
         mm = MemoryManager()
         assert mm is not None
         
     def test_memory_add_conversation(self):
         """Test adding to conversation history."""
-        from vostok.memory import MemoryManager, reset_memory
+        from eurus.memory import MemoryManager, reset_memory
         reset_memory()
         mm = MemoryManager()
         mm.add_message("user", "Hello")
@@ -237,7 +237,7 @@ class TestMemoryIntegration:
         
     def test_memory_dataset_registration(self):
         """Test dataset registration."""
-        from vostok.memory import MemoryManager, reset_memory
+        from eurus.memory import MemoryManager, reset_memory
         reset_memory()
         mm = MemoryManager()
         mm.register_dataset(
@@ -263,13 +263,13 @@ class TestRoutingTool:
     
     def test_routing_tool_exists(self):
         """Test routing tool can be imported."""
-        from vostok.tools.routing import routing_tool
+        from eurus.tools.routing import routing_tool
         assert routing_tool is not None
         assert routing_tool.name == "calculate_maritime_route"
         
     def test_has_routing_deps_flag(self):
         """Test HAS_ROUTING_DEPS flag exists."""
-        from vostok.tools.routing import HAS_ROUTING_DEPS
+        from eurus.tools.routing import HAS_ROUTING_DEPS
         assert isinstance(HAS_ROUTING_DEPS, bool)
 
 
@@ -282,7 +282,7 @@ class TestREPLSecurityComprehensive:
     
     def test_repl_blocks_sys(self):
         """Test REPL blocks sys module."""
-        from vostok.tools.repl import PythonREPLTool
+        from eurus.tools.repl import PythonREPLTool
         repl = PythonREPLTool()
         result = repl._run("import sys")
         # May or may not block sys, but should not crash
@@ -290,21 +290,21 @@ class TestREPLSecurityComprehensive:
         
     def test_repl_blocks_dangerous_imports(self):
         """Test REPL blocks dangerous imports."""
-        from vostok.tools.repl import PythonREPLTool
+        from eurus.tools.repl import PythonREPLTool
         repl = PythonREPLTool()
         result = repl._run("import os")
         assert "Security Error" in result
         
     def test_repl_allows_xarray(self):
         """Test REPL allows xarray operations."""
-        from vostok.tools.repl import PythonREPLTool
+        from eurus.tools.repl import PythonREPLTool
         repl = PythonREPLTool()
         result = repl._run("import xarray as xr; print(type(xr))")
         assert "module" in result.lower() or "xarray" in result.lower()
         
     def test_repl_allows_pandas(self):
         """Test REPL allows pandas operations."""
-        from vostok.tools.repl import PythonREPLTool
+        from eurus.tools.repl import PythonREPLTool
         repl = PythonREPLTool()
         result = repl._run("import pandas as pd; print(pd.DataFrame({'a': [1, 2]}))")
         # Should work without security error
@@ -320,18 +320,18 @@ class TestEdgeCases:
     
     def test_get_short_name_unknown(self):
         """Test get_short_name with unknown variable returns input."""
-        from vostok.config import get_short_name
+        from eurus.config import get_short_name
         result = get_short_name("completely_unknown_variable_xyz")
         # Should return the input as-is for unknown variables
         assert "completely_unknown_variable_xyz" in result or result is not None
         
     def test_variable_info_none_for_unknown(self):
         """Test get_variable_info returns None for unknown."""
-        from vostok.config import get_variable_info
+        from eurus.config import get_variable_info
         result = get_variable_info("unknown_var_xyz")
         assert result is None
         
     def test_era5_tool_has_description(self):
         """Test ERA5 tool has comprehensive description."""
-        from vostok.tools.era5 import era5_tool
+        from eurus.tools.era5 import era5_tool
         assert len(era5_tool.description) > 100

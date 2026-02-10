@@ -1,7 +1,7 @@
 """
 Tests for Climate Science Tools
 ===============================
-Unit tests for the statistical analysis tools in vostok.tools.climate_science.
+Unit tests for the statistical analysis tools in eurus.tools.climate_science.
 """
 
 import pytest
@@ -115,12 +115,12 @@ class TestToolImports:
 
     def test_import_science_tools(self):
         """Test importing the science tools module."""
-        from vostok.tools.climate_science import SCIENCE_TOOLS
+        from eurus.tools.climate_science import SCIENCE_TOOLS
         assert len(SCIENCE_TOOLS) == 10  # detrend + 2 pattern + 3 extreme + 3 attribution + 1 viz
 
     def test_import_individual_tools(self):
         """Test importing individual tools."""
-        from vostok.tools.climate_science import (
+        from eurus.tools.climate_science import (
             detrend_tool,
             eof_tool,
             compound_tool,
@@ -136,8 +136,8 @@ class TestToolImports:
 
     def test_tools_in_registry(self):
         """Test that science tools are in the main registry."""
-        from vostok.tools import get_all_tools
-        from vostok.tools.climate_science import get_science_tools
+        from eurus.tools import get_all_tools
+        from eurus.tools.climate_science import get_science_tools
 
         all_tools = get_all_tools()
         science_tools = get_science_tools()
@@ -162,7 +162,7 @@ class TestDiagnostics:
 
     def test_diagnostics_creates_output(self, sample_sst_dataset, tmp_path):
         """Test that diagnostics creates output file."""
-        from vostok.tools.climate_science import calculate_climate_diagnostics
+        from eurus.tools.climate_science import calculate_climate_diagnostics
 
         result = calculate_climate_diagnostics(
             sample_sst_dataset,
@@ -179,7 +179,7 @@ class TestDiagnostics:
 
     def test_diagnostics_creates_zscore(self, sample_sst_dataset):
         """Test that diagnostics creates Z-score variable."""
-        from vostok.tools.climate_science import calculate_climate_diagnostics
+        from eurus.tools.climate_science import calculate_climate_diagnostics
 
         result = calculate_climate_diagnostics(
             sample_sst_dataset,
@@ -197,7 +197,7 @@ class TestDiagnostics:
 
     def test_diagnostics_invalid_path(self):
         """Test error handling for invalid path."""
-        from vostok.tools.climate_science import calculate_climate_diagnostics
+        from eurus.tools.climate_science import calculate_climate_diagnostics
 
         result = calculate_climate_diagnostics("/nonexistent/path.zarr")
         assert "FAILED" in result or "Error" in result
@@ -213,7 +213,7 @@ class TestEOFAnalysis:
 
     def test_eof_creates_output(self, sample_sst_dataset):
         """Test that EOF analysis creates output file."""
-        from vostok.tools.climate_science import perform_eof_analysis
+        from eurus.tools.climate_science import perform_eof_analysis
 
         result = perform_eof_analysis(sample_sst_dataset, n_modes=3)
 
@@ -225,7 +225,7 @@ class TestEOFAnalysis:
 
     def test_eof_extracts_modes(self, sample_sst_dataset):
         """Test that EOF extracts the requested number of modes."""
-        from vostok.tools.climate_science import perform_eof_analysis
+        from eurus.tools.climate_science import perform_eof_analysis
 
         n_modes = 3
         result = perform_eof_analysis(sample_sst_dataset, n_modes=n_modes)
@@ -242,7 +242,7 @@ class TestEOFAnalysis:
 
     def test_eof_variance_explained(self, sample_sst_dataset):
         """Test that variance explained is reported."""
-        from vostok.tools.climate_science import perform_eof_analysis
+        from eurus.tools.climate_science import perform_eof_analysis
 
         result = perform_eof_analysis(sample_sst_dataset, n_modes=2)
 
@@ -262,7 +262,7 @@ class TestTrendAnalysis:
 
     def test_trend_creates_output(self, sample_sst_dataset):
         """Test that trend analysis creates output file."""
-        from vostok.tools.climate_science import calculate_trends
+        from eurus.tools.climate_science import calculate_trends
 
         result = calculate_trends(sample_sst_dataset)
 
@@ -274,7 +274,7 @@ class TestTrendAnalysis:
 
     def test_trend_includes_significance(self, sample_sst_dataset):
         """Test that trend analysis includes significance testing."""
-        from vostok.tools.climate_science import calculate_trends
+        from eurus.tools.climate_science import calculate_trends
 
         result = calculate_trends(sample_sst_dataset, confidence_level=0.95)
 
@@ -296,7 +296,7 @@ class TestPercentileExtremes:
 
     def test_percentile_creates_output(self, sample_sst_dataset):
         """Test that percentile detection creates output file."""
-        from vostok.tools.climate_science import detect_percentile_extremes
+        from eurus.tools.climate_science import detect_percentile_extremes
 
         result = detect_percentile_extremes(
             sample_sst_dataset,
@@ -312,7 +312,7 @@ class TestPercentileExtremes:
 
     def test_percentile_detects_events(self, sample_sst_dataset):
         """Test that percentile detection finds extreme events."""
-        from vostok.tools.climate_science import detect_percentile_extremes
+        from eurus.tools.climate_science import detect_percentile_extremes
 
         result = detect_percentile_extremes(
             sample_sst_dataset,
@@ -341,7 +341,7 @@ class TestArgumentValidation:
 
     def test_diagnostics_args_validation(self):
         """Test diagnostics argument validation."""
-        from vostok.tools.climate_science import DiagnosticsArgs
+        from eurus.tools.climate_science import DiagnosticsArgs
 
         # Valid args
         args = DiagnosticsArgs(dataset_path="/path/to/data.zarr")
@@ -354,7 +354,7 @@ class TestArgumentValidation:
 
     def test_eof_args_validation(self):
         """Test EOF argument validation."""
-        from vostok.tools.climate_science import EOFArgs
+        from eurus.tools.climate_science import EOFArgs
 
         # Valid args
         args = EOFArgs(dataset_path="/path/to/data.zarr", n_modes=5)
@@ -366,7 +366,7 @@ class TestArgumentValidation:
 
     def test_percentile_args_validation(self):
         """Test percentile argument validation."""
-        from vostok.tools.climate_science import PercentileArgs
+        from eurus.tools.climate_science import PercentileArgs
 
         # Valid args
         args = PercentileArgs(dataset_path="/path/to/data.zarr", percentile=95.0)
@@ -378,7 +378,7 @@ class TestArgumentValidation:
 
     def test_index_args_validation(self):
         """Test climate index argument validation."""
-        from vostok.tools.climate_science import IndexArgs
+        from eurus.tools.climate_science import IndexArgs
 
         # Valid args
         args = IndexArgs(index_name="nino34", start_date="2020-01-01", end_date="2023-12-31")
@@ -390,7 +390,7 @@ class TestArgumentValidation:
 
     def test_return_period_args_validation(self):
         """Test return period argument validation."""
-        from vostok.tools.climate_science import ReturnPeriodArgs
+        from eurus.tools.climate_science import ReturnPeriodArgs
 
         # Valid args
         args = ReturnPeriodArgs(dataset_path="/path/to/data.zarr", block_size="year")
@@ -411,7 +411,7 @@ class TestIntegration:
 
     def test_diagnostics_then_eof_workflow(self, sample_sst_dataset):
         """Test running diagnostics followed by EOF analysis."""
-        from vostok.tools.climate_science import (
+        from eurus.tools.climate_science import (
             calculate_climate_diagnostics,
             perform_eof_analysis
         )
@@ -442,12 +442,12 @@ class TestClimateIndex:
 
     def test_index_tool_exists(self):
         """Test that index tool is available."""
-        from vostok.tools.climate_science import index_tool
+        from eurus.tools.climate_science import index_tool
         assert index_tool.name == "fetch_climate_index"
 
     def test_index_invalid_name(self):
         """Test error handling for invalid index name."""
-        from vostok.tools.climate_science import fetch_climate_index
+        from eurus.tools.climate_science import fetch_climate_index
         # This should handle validation internally now
         result = fetch_climate_index("invalid_index", "2020-01-01", "2020-12-31")
         assert "Error" in result or "Unknown" in result
@@ -463,12 +463,12 @@ class TestReturnPeriods:
 
     def test_return_period_tool_exists(self):
         """Test that return period tool is available."""
-        from vostok.tools.climate_science import return_period_tool
+        from eurus.tools.climate_science import return_period_tool
         assert return_period_tool.name == "calculate_return_periods"
 
     def test_return_period_insufficient_data(self, sample_sst_dataset):
         """Test error handling for insufficient data."""
-        from vostok.tools.climate_science import calculate_return_periods
+        from eurus.tools.climate_science import calculate_return_periods
         import xarray as xr
 
         # Create a short dataset (only 5 years)
@@ -484,7 +484,7 @@ class TestReturnPeriods:
 
     def test_return_period_long_data(self, sample_sst_dataset):
         """Test GEV fitting with sufficient data."""
-        from vostok.tools.climate_science import calculate_return_periods
+        from eurus.tools.climate_science import calculate_return_periods
 
         # sample_sst_dataset has 10 years of data
         result = calculate_return_periods(sample_sst_dataset, block_size="year")
@@ -505,12 +505,12 @@ class TestFullToolRegistry:
 
     def test_science_tool_count(self):
         """Test that all 11 science tools are registered."""
-        from vostok.tools.climate_science import SCIENCE_TOOLS
+        from eurus.tools.climate_science import SCIENCE_TOOLS
         assert len(SCIENCE_TOOLS) == 10
 
     def test_total_tool_count(self):
         """Test total tool count including core tools."""
-        from vostok.tools import get_all_tools
+        from eurus.tools import get_all_tools
         tools = get_all_tools(enable_routing=False)
         # At least era5 + repl + 10 science tools
         assert len(tools) >= 12

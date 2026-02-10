@@ -59,9 +59,10 @@ class ERA5Variable:
         return f"{self.short_name}: {self.long_name} ({self.units})"
 
 
-# Comprehensive ERA5 variable mapping (short names only - no duplicates!)
+# Comprehensive ERA5 variable mapping — ALL 22 Arraylake variables
+# Source: earthmover-public/era5-surface-aws Icechunk store
 ERA5_VARIABLES: Dict[str, ERA5Variable] = {
-    # Sea Surface
+    # ── Ocean ──────────────────────────────────────────────────────────────
     "sst": ERA5Variable(
         short_name="sst",
         long_name="Sea Surface Temperature",
@@ -71,22 +72,40 @@ ERA5_VARIABLES: Dict[str, ERA5Variable] = {
         typical_range=(270, 310),
         colormap="RdYlBu_r"
     ),
-    # Temperature
+    # ── Temperature ────────────────────────────────────────────────────────
     "t2": ERA5Variable(
         short_name="t2",
         long_name="2m Temperature",
         units="K",
-        description="Air temperature at 2 meters above surface",
+        description="Air temperature at 2 meters above the surface",
         category="atmosphere",
         typical_range=(220, 330),
         colormap="RdYlBu_r"
     ),
-    # Wind Components
+    "d2": ERA5Variable(
+        short_name="d2",
+        long_name="2m Dewpoint Temperature",
+        units="K",
+        description="Temperature to which air at 2m must cool to reach saturation; indicates humidity",
+        category="atmosphere",
+        typical_range=(220, 310),
+        colormap="RdYlBu_r"
+    ),
+    "skt": ERA5Variable(
+        short_name="skt",
+        long_name="Skin Temperature",
+        units="K",
+        description="Temperature of the Earth's uppermost surface layer (land, ocean, or ice)",
+        category="surface",
+        typical_range=(220, 340),
+        colormap="RdYlBu_r"
+    ),
+    # ── Wind 10 m ──────────────────────────────────────────────────────────
     "u10": ERA5Variable(
         short_name="u10",
         long_name="10m U-Wind Component",
         units="m/s",
-        description="Eastward component of wind at 10m",
+        description="Eastward component of wind at 10 meters above surface",
         category="atmosphere",
         typical_range=(-30, 30),
         colormap="RdBu_r"
@@ -95,12 +114,31 @@ ERA5_VARIABLES: Dict[str, ERA5Variable] = {
         short_name="v10",
         long_name="10m V-Wind Component",
         units="m/s",
-        description="Northward component of wind at 10m",
+        description="Northward component of wind at 10 meters above surface",
         category="atmosphere",
         typical_range=(-30, 30),
         colormap="RdBu_r"
     ),
-    # Pressure
+    # ── Wind 100 m (hub-height for wind energy) ───────────────────────────
+    "u100": ERA5Variable(
+        short_name="u100",
+        long_name="100m U-Wind Component",
+        units="m/s",
+        description="Eastward component of wind at 100 meters above surface (wind-turbine hub height)",
+        category="atmosphere",
+        typical_range=(-40, 40),
+        colormap="RdBu_r"
+    ),
+    "v100": ERA5Variable(
+        short_name="v100",
+        long_name="100m V-Wind Component",
+        units="m/s",
+        description="Northward component of wind at 100 meters above surface (wind-turbine hub height)",
+        category="atmosphere",
+        typical_range=(-40, 40),
+        colormap="RdBu_r"
+    ),
+    # ── Pressure ───────────────────────────────────────────────────────────
     "sp": ERA5Variable(
         short_name="sp",
         long_name="Surface Pressure",
@@ -119,7 +157,26 @@ ERA5_VARIABLES: Dict[str, ERA5Variable] = {
         typical_range=(96000, 105000),
         colormap="viridis"
     ),
-    # Cloud and Precipitation
+    # ── Boundary Layer ─────────────────────────────────────────────────────
+    "blh": ERA5Variable(
+        short_name="blh",
+        long_name="Boundary Layer Height",
+        units="m",
+        description="Height of the planetary boundary layer above ground",
+        category="atmosphere",
+        typical_range=(50, 3000),
+        colormap="viridis"
+    ),
+    "cape": ERA5Variable(
+        short_name="cape",
+        long_name="Convective Available Potential Energy",
+        units="J/kg",
+        description="Instability indicator for convection/thunderstorm potential",
+        category="atmosphere",
+        typical_range=(0, 5000),
+        colormap="YlOrRd"
+    ),
+    # ── Cloud & Precipitation ──────────────────────────────────────────────
     "tcc": ERA5Variable(
         short_name="tcc",
         long_name="Total Cloud Cover",
@@ -133,7 +190,7 @@ ERA5_VARIABLES: Dict[str, ERA5Variable] = {
         short_name="cp",
         long_name="Convective Precipitation",
         units="m",
-        description="Precipitation from convective processes",
+        description="Accumulated precipitation from convective processes",
         category="precipitation",
         typical_range=(0, 0.1),
         colormap="Blues"
@@ -142,7 +199,7 @@ ERA5_VARIABLES: Dict[str, ERA5Variable] = {
         short_name="lsp",
         long_name="Large-scale Precipitation",
         units="m",
-        description="Precipitation from large-scale weather systems",
+        description="Accumulated precipitation from large-scale weather systems",
         category="precipitation",
         typical_range=(0, 0.1),
         colormap="Blues"
@@ -151,24 +208,119 @@ ERA5_VARIABLES: Dict[str, ERA5Variable] = {
         short_name="tp",
         long_name="Total Precipitation",
         units="m",
-        description="Total accumulated precipitation",
+        description="Total accumulated precipitation (convective + large-scale)",
         category="precipitation",
         typical_range=(0, 0.2),
         colormap="Blues"
+    ),
+    # ── Radiation ──────────────────────────────────────────────────────────
+    "ssr": ERA5Variable(
+        short_name="ssr",
+        long_name="Surface Net Solar Radiation",
+        units="J/m²",
+        description="Net balance of downward minus reflected shortwave radiation at the surface",
+        category="radiation",
+        typical_range=(0, 3e7),
+        colormap="YlOrRd"
+    ),
+    "ssrd": ERA5Variable(
+        short_name="ssrd",
+        long_name="Surface Solar Radiation Downwards",
+        units="J/m²",
+        description="Total incoming shortwave (solar) radiation reaching the surface (direct + diffuse)",
+        category="radiation",
+        typical_range=(0, 3.5e7),
+        colormap="YlOrRd"
+    ),
+    # ── Moisture Columns ───────────────────────────────────────────────────
+    "tcw": ERA5Variable(
+        short_name="tcw",
+        long_name="Total Column Water",
+        units="kg/m²",
+        description="Total water (vapour + liquid + ice) in the atmospheric column",
+        category="atmosphere",
+        typical_range=(0, 80),
+        colormap="Blues"
+    ),
+    "tcwv": ERA5Variable(
+        short_name="tcwv",
+        long_name="Total Column Water Vapour",
+        units="kg/m²",
+        description="Total water vapour in the atmospheric column (precipitable water)",
+        category="atmosphere",
+        typical_range=(0, 70),
+        colormap="Blues"
+    ),
+    # ── Land Surface ───────────────────────────────────────────────────────
+    "sd": ERA5Variable(
+        short_name="sd",
+        long_name="Snow Depth",
+        units="m water equiv.",
+        description="Depth of snow expressed as meters of water equivalent",
+        category="land_surface",
+        typical_range=(0, 2),
+        colormap="Blues"
+    ),
+    "stl1": ERA5Variable(
+        short_name="stl1",
+        long_name="Soil Temperature Level 1",
+        units="K",
+        description="Temperature of the topmost soil layer (0-7 cm depth)",
+        category="land_surface",
+        typical_range=(220, 330),
+        colormap="RdYlBu_r"
+    ),
+    "swvl1": ERA5Variable(
+        short_name="swvl1",
+        long_name="Volumetric Soil Water Layer 1",
+        units="m³/m³",
+        description="Volume fraction of water in the topmost soil layer (0-7 cm depth)",
+        category="land_surface",
+        typical_range=(0, 0.5),
+        colormap="YlGnBu"
     ),
 }
 
 # Aliases for long variable names → short names
 VARIABLE_ALIASES: Dict[str, str] = {
+    # Ocean
     "sea_surface_temperature": "sst",
+    # Temperature
     "2m_temperature": "t2",
     "temperature": "t2",
+    "2m_dewpoint_temperature": "d2",
+    "dewpoint_temperature": "d2",
+    "dewpoint": "d2",
+    "skin_temperature": "skt",
+    # Wind 10m
     "10m_u_component_of_wind": "u10",
     "10m_v_component_of_wind": "v10",
+    # Wind 100m
+    "100m_u_component_of_wind": "u100",
+    "100m_v_component_of_wind": "v100",
+    # Pressure
     "surface_pressure": "sp",
     "mean_sea_level_pressure": "mslp",
+    # Boundary layer
+    "boundary_layer_height": "blh",
+    "convective_available_potential_energy": "cape",
+    # Cloud & precipitation
     "total_cloud_cover": "tcc",
+    "convective_precipitation": "cp",
+    "large_scale_precipitation": "lsp",
     "total_precipitation": "tp",
+    # Radiation
+    "surface_net_solar_radiation": "ssr",
+    "surface_solar_radiation_downwards": "ssrd",
+    # Moisture columns
+    "total_column_water": "tcw",
+    "total_column_water_vapour": "tcwv",
+    # Land surface
+    "snow_depth": "sd",
+    "soil_temperature": "stl1",
+    "soil_temperature_level_1": "stl1",
+    "soil_moisture": "swvl1",
+    "volumetric_soil_water_layer_1": "swvl1",
 }
 
 
@@ -396,7 +548,7 @@ PLOTS_DIR = get_plots_dir()
 # SYSTEM PROMPTS
 # =============================================================================
 
-AGENT_SYSTEM_PROMPT = """You are Vostok, an AI Climate Physicist conducting research for high-impact scientific publications.
+AGENT_SYSTEM_PROMPT = """You are Eurus, an AI Climate Physicist conducting research for high-impact scientific publications.
 
 ## ⚠️ CRITICAL: RESPECT USER INTENT FIRST
 
@@ -442,16 +594,32 @@ USE THOSE EXACT VALUES for min/max longitude. Do NOT convert to 0-360!
 
 **DATA AVAILABILITY:** 1975 to present (updated regularly)
 
-**Available Variables:**
-| Variable | Description | Units |
-|----------|-------------|-------|
-| sst | Sea Surface Temperature | K |
-| t2 | 2m Air Temperature | K |
-| u10 | 10m U-Wind (Eastward) | m/s |
-| v10 | 10m V-Wind (Northward) | m/s |
-| mslp | Mean Sea Level Pressure | Pa |
-| tcc | Total Cloud Cover | 0-1 |
-| tp | Total Precipitation | m |
+**Available Variables (22 total):**
+| Variable | Description | Units | Category |
+|----------|-------------|-------|----------|
+| sst | Sea Surface Temperature | K | Ocean |
+| t2 | 2m Air Temperature | K | Temperature |
+| d2 | 2m Dewpoint Temperature | K | Temperature |
+| skt | Skin Temperature | K | Surface |
+| u10 | 10m U-Wind (Eastward) | m/s | Wind |
+| v10 | 10m V-Wind (Northward) | m/s | Wind |
+| u100 | 100m U-Wind (Eastward) | m/s | Wind |
+| v100 | 100m V-Wind (Northward) | m/s | Wind |
+| sp | Surface Pressure | Pa | Pressure |
+| mslp | Mean Sea Level Pressure | Pa | Pressure |
+| blh | Boundary Layer Height | m | Atmosphere |
+| cape | Convective Available Potential Energy | J/kg | Atmosphere |
+| tcc | Total Cloud Cover | 0-1 | Cloud |
+| cp | Convective Precipitation | m | Precipitation |
+| lsp | Large-scale Precipitation | m | Precipitation |
+| tp | Total Precipitation | m | Precipitation |
+| ssr | Surface Net Solar Radiation | J/m² | Radiation |
+| ssrd | Surface Solar Radiation Downwards | J/m² | Radiation |
+| tcw | Total Column Water | kg/m² | Moisture |
+| tcwv | Total Column Water Vapour | kg/m² | Moisture |
+| sd | Snow Depth | m water eq. | Land |
+| stl1 | Soil Temperature Level 1 | K | Land |
+| swvl1 | Volumetric Soil Water Layer 1 | m³/m³ | Land |
 
 ### 2. CUSTOM ANALYSIS: `python_repl`
 Persistent Python kernel for custom analysis and visualization.
@@ -527,10 +695,32 @@ When the user requests scientific analysis:
 
 ## VISUALIZATION STANDARDS
 
-- **For raw data**: Use appropriate colormaps for the variable
-- **Anomaly Maps**: Use diverging colormap (`RdBu_r`) centered at 0
-- **Stippling**: Mark significant regions where p < 0.05
-- **ALWAYS** save figures using `PLOTS_DIR / "filename.png"` (pre-loaded in REPL)
+**Publication-grade light-theme rcParams are pre-set** — figures get white background,
+black text, grid, 300 DPI on save, and a high-contrast color cycle. Do NOT override unless necessary.
+
+### Mandatory Rules
+1. **DPI**: Saved at 300 (print-quality) — do not lower it
+2. **Figure size**: Default 10×6 for time series, use `figsize=(12, 8)` for map plots
+3. **Unit conversions in labels**: 
+   - Temperature → always show °C (`- 273.15`)
+   - Pressure → show hPa (`/ 100`)
+   - Precipitation → show mm (`* 1000`)
+4. **Colormaps**:
+   - SST/Temperature: `'RdYlBu_r'` or `'coolwarm'`
+   - Wind speed:        `'YlOrRd'`
+   - Anomalies:         `'RdBu_r'` (diverging, centered at zero via `TwoSlopeNorm`)
+   - Precipitation:     `'YlGnBu'`
+   - Cloud cover:       `'Greys'`
+   - **NEVER** use `'jet'`
+5. **Colorbar**: Always include `label=` with units:
+   ```python
+   cbar = plt.colorbar(mesh, label='SST (°C)', shrink=0.8)
+   ```
+6. **Maritime maps**: Call `get_analysis_guide(topic='maritime_visualization')` for the full template
+
+### Available in REPL Namespace
+`pd, np, xr, plt, mcolors, cm, datetime, timedelta, PLOTS_DIR`
+
 
 ## RESPONSE STYLE
 - Be precise and scientific

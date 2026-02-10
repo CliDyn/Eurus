@@ -19,13 +19,90 @@ import matplotlib
 # Force non-interactive backend to prevent crashes on headless servers
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors  # Pre-import for custom colormaps
+import matplotlib.cm as cm  # Pre-import for colormap access
+
+# =============================================================================
+# PUBLICATION-GRADE LIGHT THEME (white background for academic papers)
+# =============================================================================
+_EURUS_STYLE = {
+    # ── Figure ──
+    "figure.figsize": (10, 6),
+    "figure.dpi": 150,
+    "figure.facecolor": "white",
+    "figure.edgecolor": "white",
+    "savefig.facecolor": "white",
+    "savefig.edgecolor": "white",
+    "savefig.dpi": 300,          # 300 DPI for print-quality
+    "savefig.bbox": "tight",
+    "savefig.pad_inches": 0.15,
+    # ── Axes ──
+    "axes.facecolor": "white",
+    "axes.edgecolor": "#333333",
+    "axes.labelcolor": "#1a1a1a",
+    "axes.titlecolor": "#000000",
+    "axes.labelsize": 12,
+    "axes.titlesize": 14,
+    "axes.titleweight": "bold",
+    "axes.titlepad": 12,
+    "axes.grid": True,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "axes.linewidth": 0.8,
+    # ── Grid ──
+    "grid.color": "#d0d0d0",
+    "grid.alpha": 0.5,
+    "grid.linewidth": 0.5,
+    "grid.linestyle": "--",
+    # ── Ticks ──
+    "xtick.color": "#333333",
+    "ytick.color": "#333333",
+    "xtick.labelsize": 10,
+    "ytick.labelsize": 10,
+    "xtick.direction": "out",
+    "ytick.direction": "out",
+    # ── Text ──
+    "text.color": "#1a1a1a",
+    "font.family": "sans-serif",
+    "font.sans-serif": ["DejaVu Sans", "Arial", "Helvetica"],
+    "font.size": 11,
+    # ── Lines ──
+    "lines.linewidth": 1.8,
+    "lines.antialiased": True,
+    "lines.markersize": 5,
+    # ── Legend ──
+    "legend.facecolor": "white",
+    "legend.edgecolor": "#cccccc",
+    "legend.fontsize": 10,
+    "legend.framealpha": 0.95,
+    "legend.shadow": False,
+    # ── Colorbar ──
+    "image.cmap": "viridis",
+    # ── Patches ──
+    "patch.edgecolor": "#333333",
+}
+matplotlib.rcParams.update(_EURUS_STYLE)
+
+# Curated color cycle for white backgrounds (high-contrast, publication-safe)
+_EURUS_COLORS = [
+    "#1f77b4",  # steel blue
+    "#d62728",  # brick red
+    "#2ca02c",  # forest green
+    "#ff7f0e",  # orange
+    "#9467bd",  # muted purple
+    "#17becf",  # cyan
+    "#e377c2",  # pink
+    "#8c564b",  # brown
+]
+matplotlib.rcParams["axes.prop_cycle"] = matplotlib.cycler(color=_EURUS_COLORS)
+
 from typing import Dict, Optional, Type, Callable
 from pathlib import Path
 from pydantic import BaseModel, Field
 from langchain_core.tools import BaseTool
 
 # Import PLOTS_DIR for correct plot saving location
-from vostok.config import PLOTS_DIR
+from eurus.config import PLOTS_DIR
 
 # Pre-import common scientific libraries for convenience
 import pandas as pd
@@ -81,7 +158,7 @@ class PythonREPLTool(BaseTool):
         "1. NEVER use .load() or .compute() on large datasets\n"
         "2. Resample multi-year data first: ds.resample(time='D').mean()\n"
         "3. Use .sel() to subset data before operations\n\n"
-        "Pre-loaded: pd, np, xr, plt, datetime, timedelta, PLOTS_DIR (string path)"
+        "Pre-loaded: pd, np, xr, plt, mcolors, cm, datetime, timedelta, PLOTS_DIR (string path)"
     )
     args_schema: Type[BaseModel] = PythonREPLInput
     globals_dict: Dict = Field(default_factory=dict, exclude=True)
@@ -99,6 +176,8 @@ class PythonREPLTool(BaseTool):
             "np": np,
             "xr": xr,
             "plt": plt,
+            "mcolors": mcolors,
+            "cm": cm,
             "datetime": datetime,
             "timedelta": timedelta,
             "PLOTS_DIR": str(PLOTS_DIR),  # STRING only! Path object allows .parent exploit

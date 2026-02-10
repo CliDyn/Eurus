@@ -3,7 +3,7 @@ ERA5 Data Retrieval Tool (Wrapper)
 ==================================
 LangChain tool definition. Imports core logic from ..retrieval
 
-This is a THIN WRAPPER - all retrieval logic lives in vostok/retrieval.py
+This is a THIN WRAPPER - all retrieval logic lives in eurus/retrieval.py
 
 QUERY_TYPE IS AUTO-DETECTED based on time/area rules:
 - TEMPORAL: time > 1 day AND area < 30°×30°
@@ -33,8 +33,17 @@ class ERA5RetrievalArgs(BaseModel):
 
     variable_id: str = Field(
         description=(
-            "ERA5 variable short name (e.g., 'sst', 't2', 'u10', 'v10', 'tp', 'mslp'). "
-            "Use list_era5_variables tool to see full catalog with descriptions."
+            "ERA5 variable short name. Available variables (22 total):\n"
+            "Ocean: sst (Sea Surface Temperature)\n"
+            "Temperature: t2 (2m Air Temp), d2 (2m Dewpoint), skt (Skin Temp)\n"
+            "Wind 10m: u10 (Eastward), v10 (Northward)\n"
+            "Wind 100m: u100 (Eastward), v100 (Northward)\n"
+            "Pressure: sp (Surface), mslp (Mean Sea Level)\n"
+            "Boundary Layer: blh (BL Height), cape (CAPE)\n"
+            "Cloud/Precip: tcc (Cloud Cover), cp (Convective), lsp (Large-scale), tp (Total Precip)\n"
+            "Radiation: ssr (Net Solar), ssrd (Solar Downwards)\n"
+            "Moisture: tcw (Total Column Water), tcwv (Water Vapour)\n"
+            "Land: sd (Snow Depth), stl1 (Soil Temp L1), swvl1 (Soil Water L1)"
         )
     )
 
@@ -184,7 +193,8 @@ era5_tool = StructuredTool.from_function(
         "Retrieves ERA5 climate reanalysis data from Earthmover's cloud archive.\n\n"
         "⚠️ query_type is AUTO-DETECTED - you don't need to specify it!\n\n"
         "Just provide:\n"
-        "- variable_id: sst, t2, u10, v10, mslp, tcc, tp\n"
+        "- variable_id: one of 22 ERA5 variables (sst, t2, d2, skt, u10, v10, u100, v100, "
+        "sp, mslp, blh, cape, tcc, cp, lsp, tp, ssr, ssrd, tcw, tcwv, sd, stl1, swvl1)\n"
         "- start_date, end_date: YYYY-MM-DD format\n"
         "- lat/lon bounds: Use values from maritime route bounding box!\n\n"
         "DATA: 1975-2024.\n"

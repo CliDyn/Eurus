@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Optional, Callable, Any, List, Dict
 from queue import Queue
 
-# Add src directory to path for vostok package
+# Add src directory to path for eurus package
 PROJECT_ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
@@ -23,11 +23,11 @@ load_dotenv()
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
 
-# IMPORT FROM VOSTOK PACKAGE - SINGLE SOURCE OF TRUTH
-from vostok.config import CONFIG, AGENT_SYSTEM_PROMPT
-from vostok.memory import get_memory  # Use SINGLETON so tools can register datasets!
-from vostok.tools import get_all_tools
-from vostok.tools.repl import PythonREPLTool
+# IMPORT FROM EURUS PACKAGE - SINGLE SOURCE OF TRUTH
+from eurus.config import CONFIG, AGENT_SYSTEM_PROMPT
+from eurus.memory import get_memory  # Use SINGLETON so tools can register datasets!
+from eurus.tools import get_all_tools
+from eurus.tools.repl import PythonREPLTool
 
 logger = logging.getLogger(__name__)
 

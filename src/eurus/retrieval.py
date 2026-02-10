@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from vostok.config import (
+from eurus.config import (
     CONFIG,
     get_data_dir,
     get_region,
@@ -23,7 +23,7 @@ from vostok.config import (
     get_variable_info,
     list_available_variables,
 )
-from vostok.memory import get_memory
+from eurus.memory import get_memory
 
 logger = logging.getLogger(__name__)
 

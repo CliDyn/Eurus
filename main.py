@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Vostok - ERA5 Climate Analysis Agent
+Eurus - ERA5 Climate Analysis Agent
 ======================================
 An intelligent oceanography and climate data analysis assistant.
 
@@ -38,7 +38,7 @@ PROJECT_ROOT = Path(__file__).parent
 sys.path.insert(0, str(PROJECT_ROOT / "src"))
 
 # Setup centralized logging
-from vostok.logging_config import setup_logging, cleanup_old_logs
+from eurus.logging_config import setup_logging, cleanup_old_logs
 setup_logging(mode="cli")
 cleanup_old_logs(keep=20)
 
@@ -48,9 +48,9 @@ logger = logging.getLogger(__name__)
 from langchain_openai import ChatOpenAI
 from langchain.agents import create_agent
 
-from vostok.config import CONFIG, AGENT_SYSTEM_PROMPT, DATA_DIR, PLOTS_DIR
-from vostok.memory import get_memory, MemoryManager
-from vostok.tools import get_all_tools
+from eurus.config import CONFIG, AGENT_SYSTEM_PROMPT, DATA_DIR, PLOTS_DIR
+from eurus.memory import get_memory, MemoryManager
+from eurus.tools import get_all_tools
 
 
 # ============================================================================
@@ -85,7 +85,7 @@ BANNER = """
 
 HELP_TEXT = """
 ╔═══════════════════════════════════════════════════════════════════════════╗
-║                          VOSTOK HELP - AI Climate Physicist               ║
+║                          EURUS HELP - AI Climate Physicist               ║
 ╠═══════════════════════════════════════════════════════════════════════════╣
 ║                                                                           ║
 ║  COMMANDS:                                                                ║
@@ -255,7 +255,7 @@ def handle_command(command: str, memory: MemoryManager) -> tuple[bool, str]:
 # ============================================================================
 
 def main():
-    """Main entry point for the Vostok agent."""
+    """Main entry point for the Eurus agent."""
 
     # Print banner
     print(BANNER)
@@ -389,7 +389,7 @@ def main():
                                     # Check for final content
                                     elif hasattr(msg, 'content') and msg.content:
                                         if not tool_executed:
-                                            print("Vostok: ", end="", flush=True)
+                                            print("Eurus: ", end="", flush=True)
                                         else:
                                             print("\n\n📝 Response:", flush=True)
                                         print(msg.content, flush=True)
@@ -422,7 +422,7 @@ def main():
                     else:
                         response_text = str(last_message)
                     
-                    print(f"\nVostok: {response_text}")
+                    print(f"\nEurus: {response_text}")
                     print("─" * 75 + "\n")
                     memory.add_message("assistant", response_text)
 

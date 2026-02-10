@@ -252,62 +252,131 @@ from eofs.xarray import Eof
     "visualization_spatial": """
 ## Spatial Map Visualization
 
-### Required Imports
+### Ready-to-Adapt Template
+The REPL has a dark theme pre-set. All plots automatically get dark background,
+white labels, and grid. Just focus on the data.
+
 ```python
-import matplotlib.pyplot as plt
-import cartopy.crs as ccrs
-import cartopy.feature as cfeature
+import numpy as np
+
+# ── 1. Load data ──
+ds = xr.open_zarr('path/to/data.zarr')
+var = ds['sst']  # or t2, u10, etc.
+
+# ── 2. Select time slice and convert units ──
+data = var.isel(time=0) - 273.15  # K → °C
+
+# ── 3. Choose colormap by variable type ──
+# SST / Temperature: 'RdYlBu_r' or 'coolwarm'
+# Wind speed:        'YlOrRd'
+# Anomalies:         'RdBu_r' (with TwoSlopeNorm for centering at 0)
+# Precipitation:     'YlGnBu'
+# Cloud cover:       'Greys'
+# NEVER use 'jet'!
+
+# ── 4. Plot ──
+fig, ax = plt.subplots(figsize=(12, 8))
+
+lons, lats = np.meshgrid(data.longitude.values, data.latitude.values)
+mesh = ax.pcolormesh(lons, lats, data.values,
+                     cmap='RdYlBu_r', shading='auto')
+
+# Colorbar
+cbar = plt.colorbar(mesh, ax=ax, label='SST (°C)', shrink=0.8, pad=0.02)
+
+# Labels
+ax.set_xlabel('Longitude')
+ax.set_ylabel('Latitude')
+ax.set_title('Sea Surface Temperature — July 15, 2023', fontweight='bold')
+
+plt.savefig(f'{PLOTS_DIR}/sst_map.png')
+plt.close()
 ```
 
-### Essential Elements
-1. **Projection**: Use appropriate map projection
-   - Regional: `ccrs.PlateCarree()`
-   - Global: `ccrs.Robinson()`
-   - Polar: `ccrs.NorthPolarStereo()`
+### Colormaps Reference
+| Variable | Colormap | Units |
+|----------|----------|-------|
+| SST, T2m | `RdYlBu_r` | °C (subtract 273.15) |
+| Wind speed | `YlOrRd` | m/s |
+| Anomalies | `RdBu_r` | same as original |
+| Precipitation | `YlGnBu` | mm (multiply by 1000) |
+| Pressure | `viridis` | hPa (divide by 100) |
+| Cloud cover | `Greys` | fraction (0-1) |
 
-2. **Coastlines**: Always add with appropriate resolution
-   - Global: '110m' (coarse)
-   - Regional: '50m' (medium)
-   - Local: '10m' (high detail)
-
-3. **Colorbar**: Horizontal, with proper label and units
-
-4. **Colormaps**:
-   - Absolute values: Sequential (viridis, thermal)
-   - Anomalies: Diverging, centered at zero (RdBu_r)
-   - NEVER use jet for scientific figures!
-
-### Units & Ranges
-- Temperature: Convert to °C, use variable-appropriate ranges
-- SST global: -2 to 32°C
-- Anomalies: Symmetric around zero (e.g., ±3°C)
+### With Cartopy (optional, for coastlines)
+```python
+try:
+    import cartopy.crs as ccrs
+    import cartopy.feature as cfeature
+    fig, ax = plt.subplots(figsize=(12, 8),
+                           subplot_kw={'projection': ccrs.PlateCarree()})
+    ax.add_feature(cfeature.COASTLINE, linewidth=0.8, edgecolor='#c0c0c0')
+    ax.add_feature(cfeature.LAND, facecolor='#2a2e36', zorder=0)
+    ax.add_feature(cfeature.BORDERS, linewidth=0.3, edgecolor='#555')
+    mesh = ax.pcolormesh(lons, lats, data.values,
+                         cmap='RdYlBu_r', shading='auto',
+                         transform=ccrs.PlateCarree())
+except ImportError:
+    pass  # Fall back to plain axes
+```
 """,
 
     "visualization_timeseries": """
 ## Time Series Visualization
 
-### Required Imports
+### Ready-to-Adapt Template
+Dark theme is pre-set. The Eurus color cycle starts with sky-blue (#4fc3f7),
+then coral, green, amber — all vivid on dark backgrounds.
+
 ```python
-import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
+import numpy as np
+
+# ── 1. Load and prepare data ──
+ds = xr.open_zarr('path/to/data.zarr')
+var = ds['t2'] - 273.15  # K → °C
+
+# ── 2. Area-average if spatial data ──
+ts = var.mean(dim=['latitude', 'longitude'])
+
+# ── 3. Plot ──
+fig, ax = plt.subplots(figsize=(10, 6))
+ax.plot(ts.time.values, ts.values, linewidth=1.5, label='2m Temperature')
+
+# ── 4. Optional: rolling mean overlay ──
+if len(ts) > 48:  # Enough data for smoothing
+    rolling = ts.rolling(time=24, center=True).mean()
+    ax.plot(rolling.time.values, rolling.values,
+            color='#ff7043', linewidth=2.5, alpha=0.9, label='24h rolling mean')
+
+# ── 5. Date formatting ──
+ax.xaxis.set_major_formatter(mdates.DateFormatter('%b %d'))
+ax.xaxis.set_major_locator(mdates.AutoDateLocator())
+fig.autofmt_xdate(rotation=30)
+
+# ── 6. Labels ──
+ax.set_xlabel('Date')
+ax.set_ylabel('Temperature (°C)')
+ax.set_title('2m Air Temperature — Berlin, August 2019', fontweight='bold')
+ax.legend()
+
+plt.savefig(f'{PLOTS_DIR}/temperature_timeseries.png')
+plt.close()
 ```
 
-### Structure
-1. Area-average the data first (if spatial)
-2. Convert time coordinate to proper datetime
-3. Use date formatters for x-axis
-
-### Essential Elements
-- Clear axis labels with units
-- Grid lines (alpha=0.3)
-- Legend if multiple lines
-- Title with region/variable info
-
 ### Enhancements
-- Trend line with statistics
-- Uncertainty shading (±1 std)
-- Event markers
-- Smoothed line over noisy data
+- **Trend line**: `from scipy.stats import linregress` → overlay with dashed line
+- **Uncertainty band**: `ax.fill_between(time, mean-std, mean+std, alpha=0.2)`
+- **Event markers**: `ax.axvline(event_date, color='#ef5350', ls='--', alpha=0.7)`
+- **Multi-variable**: Plot on twin axes with `ax2 = ax.twinx()`
+
+### Date Formatting Cheatsheet
+| Period | Locator | Formatter |
+|--------|---------|----------|
+| Hours (1 day) | `HourLocator(interval=3)` | `%H:%M` |
+| Days (1 week) | `DayLocator()` | `%b %d` |
+| Days (1 month) | `WeekdayLocator()` | `%b %d` |
+| Months (1 year) | `MonthLocator()` | `%b %Y` |
 """,
 
     # -------------------------------------------------------------------------
@@ -346,25 +415,109 @@ import matplotlib.dates as mdates
 """,
 
     "maritime_visualization": """
-## Maritime Route Visualization
+## Maritime Route Risk Visualization
 
-### Map Requirements
-1. Route line with waypoints
-2. Background: Wind speed or wave height
-3. Risk segments color-coded (green/yellow/red)
-4. Port locations marked
+### Ready-to-Adapt Template
+Copy and modify this code in `python_repl`. Replace variable names with your actual data.
 
-### Essential Elements
-- Clear legend for risk categories
-- Scale bar for distances
-- Wind barbs or vectors along route
-- Coastlines and bathymetry
+```python
+import numpy as np
 
-### Color Scheme for Risk
-- Green: Safe conditions
-- Yellow: Caution advised
-- Orange: Dangerous
-- Red: Extreme hazard
+# ── 1. Load wind data ──
+ds = xr.open_zarr('path/to/wind_data.zarr')
+u10 = ds['u10']
+v10 = ds['v10']
+wspd = np.sqrt(u10**2 + v10**2)  # Wind speed
+
+# ── 2. Compute climatological mean wind speed (spatial map) ──
+wspd_mean = wspd.mean(dim='time')
+
+# ── 3. Define waypoints (from routing tool) ──
+waypoint_lats = [53.5, 54.0, 53.8, 52.4]  # example
+waypoint_lons = [8.5, 6.0, 5.2, 4.9]      # example
+
+# ── 4. Extract wind speed at each waypoint ──
+wp_wspd = []
+for lat, lon in zip(waypoint_lats, waypoint_lons):
+    val = float(wspd_mean.sel(latitude=lat, longitude=lon, method='nearest').values)
+    wp_wspd.append(val)
+
+# ── 5. Risk categories ──
+def risk_color(speed):
+    if speed < 10:   return '#66bb6a'  # Safe - green
+    if speed < 17:   return '#ffca28'  # Caution - amber
+    if speed < 24:   return '#ff7043'  # Danger - orange/coral
+    return '#ef5350'                    # Extreme - red
+
+colors = [risk_color(w) for w in wp_wspd]
+
+# ── 6. Plot ──
+fig, ax = plt.subplots(figsize=(12, 8))
+
+# Background heatmap of mean wind speed
+lons_2d, lats_2d = np.meshgrid(wspd_mean.longitude.values, wspd_mean.latitude.values)
+mesh = ax.pcolormesh(lons_2d, lats_2d, wspd_mean.values,
+                     cmap='YlOrRd', shading='auto', alpha=0.7)
+cbar = plt.colorbar(mesh, ax=ax, label='Mean Wind Speed (m/s)', shrink=0.8, pad=0.02)
+
+# Route line
+ax.plot(waypoint_lons, waypoint_lats, '--', color='#1f77b4', linewidth=1.5,
+        alpha=0.7, zorder=5)
+
+# Risk-colored waypoint dots
+for lon, lat, c, wspd_val in zip(waypoint_lons, waypoint_lats, colors, wp_wspd):
+    ax.scatter(lon, lat, c=c, s=80, edgecolors='black', linewidths=0.8,
+               zorder=10)
+
+# Origin / Destination labels
+ax.annotate('ORIGIN', (waypoint_lons[0], waypoint_lats[0]),
+            textcoords='offset points', xytext=(8, 8),
+            fontsize=9, color='black', fontweight='bold')
+ax.annotate('DEST', (waypoint_lons[-1], waypoint_lats[-1]),
+            textcoords='offset points', xytext=(8, -12),
+            fontsize=9, color='black', fontweight='bold')
+
+# Legend for risk levels
+from matplotlib.lines import Line2D
+legend_elements = [
+    Line2D([0], [0], marker='o', color='w', markerfacecolor='#66bb6a',
+           markersize=10, label='Safe (< 10 m/s)', linestyle='None'),
+    Line2D([0], [0], marker='o', color='w', markerfacecolor='#ffca28',
+           markersize=10, label='Caution (10-17 m/s)', linestyle='None'),
+    Line2D([0], [0], marker='o', color='w', markerfacecolor='#ff7043',
+           markersize=10, label='Danger (17-24 m/s)', linestyle='None'),
+    Line2D([0], [0], marker='o', color='w', markerfacecolor='#ef5350',
+           markersize=10, label='Extreme (> 24 m/s)', linestyle='None'),
+]
+ax.legend(handles=legend_elements, loc='upper right', fontsize=9)
+
+# Try adding coastlines (requires cartopy)
+try:
+    import cartopy.crs as ccrs
+    import cartopy.feature as cfeature
+    # If using cartopy, create the axes with projection instead:
+    # fig, ax = plt.subplots(figsize=(12, 8), subplot_kw={'projection': ccrs.PlateCarree()})
+    # ax.add_feature(cfeature.COASTLINE, linewidth=0.8, edgecolor='#c0c0c0')
+    # ax.add_feature(cfeature.LAND, facecolor='#2a2e36')
+    # ax.add_feature(cfeature.OCEAN, facecolor='#1a1d23')
+except ImportError:
+    pass  # Cartopy optional - plot still works without it
+
+ax.set_xlabel('Longitude')
+ax.set_ylabel('Latitude')
+ax.set_title('Route Risk: Origin → Destination | Wind Speed Assessment',
+             fontsize=14, fontweight='bold')
+
+plt.savefig(f'{PLOTS_DIR}/route_risk_map.png')
+plt.close()
+```
+
+### Key Rules
+- **ALWAYS** use `YlOrRd` or similar warm colormap for wind speed
+- **ALWAYS** add the risk legend with the 4 categories
+- **ALWAYS** label Origin and Destination
+- Use `shading='auto'` for `pcolormesh` to avoid deprecation warnings
+- Use `method='nearest'` when extracting data at waypoints
 """,
 }
 

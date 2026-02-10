@@ -1,5 +1,5 @@
 #!/bin/bash
-echo "Setting up Vostok environment..."
+echo "Setting up Eurus environment..."
 
 # Create .env file if it doesn't exist
 if [ ! -f .env ]; then

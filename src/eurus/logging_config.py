@@ -1,5 +1,5 @@
 """
-Vostok Logging Configuration
+Eurus Logging Configuration
 ============================
 Centralized logging setup for both web and CLI modes.
 Logs are saved to PROJECT_ROOT/logs/ with timestamps.
@@ -21,7 +21,7 @@ LOGS_DIR.mkdir(exist_ok=True)
 
 def setup_logging(mode: str = "web", level: int = logging.DEBUG) -> logging.Logger:
     """
-    Configure logging for Vostok.
+    Configure logging for Eurus.
     
     Args:
         mode: 'web' or 'cli' - determines log file prefix
@@ -32,7 +32,7 @@ def setup_logging(mode: str = "web", level: int = logging.DEBUG) -> logging.Logg
     """
     # Create timestamped log filename
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    log_file = LOGS_DIR / f"vostok_{mode}_{timestamp}.log"
+    log_file = LOGS_DIR / f"eurus_{mode}_{timestamp}.log"
     
     # Create formatters
     detailed_formatter = logging.Formatter(
@@ -65,9 +65,9 @@ def setup_logging(mode: str = "web", level: int = logging.DEBUG) -> logging.Logg
     root_logger.addHandler(console_handler)
     
     # Log startup info
-    logger = logging.getLogger("vostok.logging")
+    logger = logging.getLogger("eurus.logging")
     logger.info(f"=" * 80)
-    logger.info(f"VOSTOK {mode.upper()} STARTING")
+    logger.info(f"EURUS {mode.upper()} STARTING")
     logger.info(f"Log file: {log_file}")
     logger.info(f"=" * 80)
     
@@ -90,7 +90,7 @@ def get_logger(name: str) -> logging.Logger:
 def cleanup_old_logs(keep: int = 20):
     """Remove old log files, keeping the most recent ones."""
     try:
-        log_files = sorted(LOGS_DIR.glob("vostok_*.log"), key=os.path.getmtime)
+        log_files = sorted(LOGS_DIR.glob("eurus_*.log"), key=os.path.getmtime)
         if len(log_files) > keep:
             for old_file in log_files[:-keep]:
                 old_file.unlink()

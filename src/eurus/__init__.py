@@ -1,5 +1,5 @@
 """
-Vostok - ERA5 Climate Analysis Agent
+Eurus - ERA5 Climate Analysis Agent
 ====================================
 
 A scientific climate analysis platform powered by ERA5 reanalysis data from
@@ -26,8 +26,8 @@ Example usage as MCP server:
     }
 
 Example usage as Python library:
-    from vostok import retrieve_era5_data, list_available_variables
-    from vostok.tools import get_all_tools
+    from eurus import retrieve_era5_data, list_available_variables
+    from eurus.tools import get_all_tools
 
     # Download SST data
     result = retrieve_era5_data(
@@ -43,9 +43,9 @@ Example usage as Python library:
 """
 
 __version__ = "1.1.0"
-__author__ = "Vostok Team"
+__author__ = "Eurus Team"
 
-from vostok.config import (
+from eurus.config import (
     ERA5_VARIABLES,
     GEOGRAPHIC_REGIONS,
     AGENT_SYSTEM_PROMPT,
@@ -53,9 +53,9 @@ from vostok.config import (
     get_short_name,
     list_available_variables,
 )
-from vostok.retrieval import retrieve_era5_data
-from vostok.memory import MemoryManager, get_memory
-from vostok.tools import get_all_tools
+from eurus.retrieval import retrieve_era5_data
+from eurus.memory import MemoryManager, get_memory
+from eurus.tools import get_all_tools
 
 __all__ = [
     # Version

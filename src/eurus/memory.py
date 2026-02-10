@@ -17,7 +17,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from vostok.config import get_memory_dir, CONFIG
+from eurus.config import get_memory_dir, CONFIG
 
 logger = logging.getLogger(__name__)
 

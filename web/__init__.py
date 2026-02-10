@@ -1,7 +1,7 @@
 """
-Vostok Web Interface
+Eurus Web Interface
 ====================
-A browser-based chat interface for the Vostok Climate Agent.
+A browser-based chat interface for the Eurus Climate Agent.
 """
 
 __version__ = "1.0.0"

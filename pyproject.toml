@@ -3,14 +3,14 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "vostok"
+name = "eurus"
 version = "1.0.0"
-description = "Vostok Climate Agent - Access ERA5 reanalysis data through Model Context Protocol"
+description = "Eurus Climate Agent - Access ERA5 reanalysis data through Model Context Protocol"
 readme = "README.md"
 license = {text = "MIT"}
 requires-python = ">=3.10"
 authors = [
-    {name = "Vostok Team", email = "vostok@example.com"}
+    {name = "Eurus Team", email = "eurus@example.com"}
 ]
 keywords = [
     "era5",
@@ -89,12 +89,12 @@ Repository = "https://github.com/yourusername/era5-mcp"
 Issues = "https://github.com/yourusername/era5-mcp/issues"
 
 [project.scripts]
-vostok-mcp = "vostok.server:main"
-vostok-agent = "vostok.agent:main"
-vostok-web = "web.app:main"
+eurus-mcp = "eurus.server:main"
+eurus-agent = "eurus.agent:main"
+eurus-web = "web.app:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/vostok"]
+packages = ["src/eurus"]
 
 [tool.hatch.build.targets.sdist]
 include = [
@@ -133,10 +133,10 @@ disallow_untyped_defs = true
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-addopts = "-v --cov=src/vostok --cov-report=term-missing"
+addopts = "-v --cov=src/eurus --cov-report=term-missing"
 
 [tool.coverage.run]
-source = ["src/vostok"]
+source = ["src/eurus"]
 branch = true
 
 [tool.coverage.report]
