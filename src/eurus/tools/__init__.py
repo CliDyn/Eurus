@@ -31,7 +31,7 @@ except ImportError:
 def get_all_tools(
     enable_routing: bool = True,
     enable_guide: bool = True,
-    enable_tiles: bool = True
+    enable_tiles: bool = False
 ) -> List[BaseTool]:
     """
     Return a list of all available tools for the agent.

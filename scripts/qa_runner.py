@@ -295,6 +295,7 @@ QA_QUERIES = [
         "slug": "urban_heat_island",
         "query": "Retrieve skin temperature (skt) and 2m temperature (t2) for "
                  "greater Paris (48-49.5N, 1.5-3.5E) on 2023-08-24 at 00 UTC (nighttime). "
+                 "Note: use .squeeze() to remove any singleton dimensions before computing. "
                  "1) Compute the surface-air temperature difference: ΔT = skt - t2 (°C). "
                  "2) Compute spatial statistics: mean, std, and the 95th percentile of ΔT. "
                  "3) Plot the ΔT map with a diverging colormap. "
@@ -423,7 +424,7 @@ def run_single_query(agent, query_def: dict, output_dir: Path) -> dict:
             existing_plots = {f.name for f in plots_dir.glob("*.png")}
         
         # Invoke agent
-        config = {"recursion_limit": 35}
+        config = {"recursion_limit": 80}
         messages = [HumanMessage(content=query)]
         
         result = agent.invoke({"messages": messages}, config=config)
