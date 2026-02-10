@@ -141,12 +141,33 @@ def render_interactive_map(
     Returns a JSON payload that the web interface renders as a zoomable
     Leaflet map with ERA5 data tiles overlaid on a base map.
     """
+    # Resolve variable name for the actual dataset
+    # Demo datasets have different variable names than ERA5
+    resolved_variable = variable
+    try:
+        import httpx
+        resp = httpx.get(
+            f"{TILE_SERVER_BASE}/datasets/{dataset_id}/tiles/WebMercatorQuad/tilejson.json",
+            params={"variables": variable, "width": 256, "height": 256},
+            timeout=5.0
+        )
+        if resp.status_code == 422:
+            # Variable doesn't exist — query dataset to find correct one
+            logger.warning(f"Variable '{variable}' not in dataset '{dataset_id}', resolving...")
+            # For known demo datasets, use known mappings
+            DEMO_VARS = {"air": "air", "ersstv5": "sst", "rasm": "Tair"}
+            if dataset_id in DEMO_VARS:
+                resolved_variable = DEMO_VARS[dataset_id]
+                logger.info(f"Mapped to demo variable: {resolved_variable}")
+    except Exception as e:
+        logger.warning(f"Variable resolution failed: {e}")
+
     # Build tile URL template (uses {z}/{y}/{x} Leaflet placeholders)
     colorscalerange = f"{colorscale_min},{colorscale_max}"
     tile_url = (
         f"{TILE_PROXY_BASE}/datasets/{dataset_id}/tiles/WebMercatorQuad"
         f"/{{z}}/{{y}}/{{x}}"
-        f"?variables={variable}"
+        f"?variables={resolved_variable}"
         f"&colorscalerange={colorscalerange}"
         f"&style={style}"
         f"&width=256&height=256"
