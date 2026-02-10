@@ -205,6 +205,23 @@ class AgentSession:
                 await stream_callback("chunk", chunk)
                 await asyncio.sleep(0.01)
 
+            # Detect interactive map tool results and send as tile_map events
+            import json as _json
+            for msg in self._messages:
+                # Check for ToolMessage from render_interactive_map
+                if hasattr(msg, 'name') and msg.name == 'render_interactive_map':
+                    try:
+                        map_data = _json.loads(msg.content)
+                        if map_data.get("type") == "interactive_map":
+                            logger.info(f"Sending interactive map: {map_data['options'].get('label', 'map')}")
+                            await stream_callback(
+                                "tile_map", "",
+                                tile_url=map_data["tile_url"],
+                                options=map_data.get("options", {})
+                            )
+                    except (_json.JSONDecodeError, KeyError) as e:
+                        logger.warning(f"Failed to parse interactive map result: {e}")
+
             # Send any captured media (plots and videos)
             plots = self.get_pending_plots()
             # NOTE: Only use session-specific _plot_queue, NOT shared folder scan (privacy!)
