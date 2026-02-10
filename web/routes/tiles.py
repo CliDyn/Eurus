@@ -18,7 +18,7 @@ async def proxy_tiles(path: str, request: Request):
     import httpx
 
     query_string = str(request.query_params)
-    target_url = f"{TILE_SERVER_URL}/tiles/{path}"
+    target_url = f"{TILE_SERVER_URL}/{path}"
     if query_string:
         target_url += f"?{query_string}"
 

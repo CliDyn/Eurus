@@ -158,7 +158,7 @@ class AgentSession:
 
             # Invoke the agent in executor (~15 tool calls max)
             config = {"recursion_limit": 35}
-            
+            msg_count_before = len(self._messages)  # Track for new-only map detection
             # Stream status updates while agent is working
             await stream_callback("status", "🤖 Processing with AI...")
             
@@ -206,8 +206,10 @@ class AgentSession:
                 await asyncio.sleep(0.01)
 
             # Detect interactive map tool results and send as tile_map events
+            # Only scan NEW messages added during this invocation (not old history)
             import json as _json
-            for msg in self._messages:
+            new_messages = self._messages[msg_count_before:]
+            for msg in new_messages:
                 # Check for ToolMessage from render_interactive_map
                 if hasattr(msg, 'name') and msg.name == 'render_interactive_map':
                     try:
