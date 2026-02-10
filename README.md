@@ -1,7 +1,7 @@
 # Eurus - ERA5 Climate Analysis Agent
 
 <div align="center">
-  <img src="assets/eurus_logo.jpeg" alt="Eurus Logo" width="300"/>
+  <img src="assets/eurus_logo.jpeg?v=2" alt="Eurus Logo" width="300"/>
   
   <h3><b>Next-Generation Oceanographic & Climate Data Intelligence</b></h3>
 
