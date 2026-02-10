@@ -147,18 +147,18 @@ def render_interactive_map(
     try:
         import httpx
         resp = httpx.get(
-            f"{TILE_SERVER_BASE}/datasets/{dataset_id}/tiles/WebMercatorQuad/tilejson.json",
-            params={"variables": variable, "width": 256, "height": 256},
+            f"{TILE_SERVER_BASE}/datasets/{dataset_id}/variables",
             timeout=5.0
         )
-        if resp.status_code == 422:
-            # Variable doesn't exist — query dataset to find correct one
-            logger.warning(f"Variable '{variable}' not in dataset '{dataset_id}', resolving...")
-            # For known demo datasets, use known mappings
-            DEMO_VARS = {"air": "air", "ersstv5": "sst", "rasm": "Tair"}
-            if dataset_id in DEMO_VARS:
-                resolved_variable = DEMO_VARS[dataset_id]
-                logger.info(f"Mapped to demo variable: {resolved_variable}")
+        if resp.status_code == 200:
+            info = resp.json()
+            available_vars = info.get("variables", [])
+            if variable not in available_vars and available_vars:
+                resolved_variable = available_vars[0]
+                logger.info(
+                    f"Variable '{variable}' not in dataset '{dataset_id}'. "
+                    f"Using '{resolved_variable}' (available: {available_vars})"
+                )
     except Exception as e:
         logger.warning(f"Variable resolution failed: {e}")
 
