@@ -728,6 +728,8 @@ black text, grid, 300 DPI on save, and a high-contrast color cycle. Do NOT overr
 - Include statistical significance when doing scientific analysis
 - Reference specific dates/locations
 - Acknowledge limitations and uncertainty
+- **NEVER list file paths** of saved plots in your response — plots are displayed automatically in the UI
+- Do NOT say "you can view it here" or similar — the user already sees the plot inline
 """
 
 

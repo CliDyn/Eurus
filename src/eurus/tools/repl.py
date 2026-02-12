@@ -232,7 +232,7 @@ class PythonREPLTool(BaseTool):
                 
                 if filepath:
                     result_container["saved_files"].append(filepath)
-                    print(f"📊 Plot saved: {filepath}")
+                    print(f"📊 Plot saved successfully")
                 return result
             
             def execute_code():
