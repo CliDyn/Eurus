@@ -10,6 +10,7 @@ from datetime import datetime
 import tempfile
 from pathlib import Path
 import json
+import os
 
 
 # ============================================================================
@@ -73,6 +74,55 @@ class TestRetrievalHelpers:
         """Test file size formatting for gigabytes."""
         from eurus.retrieval import format_file_size
         assert "GB" in format_file_size(5 * 1024 * 1024 * 1024)
+
+    def test_ensure_aws_region_sets_env_from_repo_metadata(self, monkeypatch):
+        """Auto-populate AWS vars when metadata includes region_name."""
+        from eurus.retrieval import _ensure_aws_region
+
+        for key in ("AWS_REGION", "AWS_DEFAULT_REGION", "AWS_ENDPOINT_URL", "AWS_S3_ENDPOINT"):
+            monkeypatch.delenv(key, raising=False)
+
+        response = MagicMock()
+        response.read.return_value = json.dumps(
+            {"bucket": {"extra_config": {"region_name": "eu-north-1"}}}
+        ).encode("utf-8")
+        context_manager = MagicMock()
+        context_manager.__enter__.return_value = response
+
+        with patch("eurus.retrieval.urlopen", return_value=context_manager) as mock_urlopen:
+            _ensure_aws_region("token", "earthmover-public/era5-surface-aws")
+
+        assert os.environ["AWS_REGION"] == "eu-north-1"
+        assert os.environ["AWS_DEFAULT_REGION"] == "eu-north-1"
+        assert os.environ["AWS_ENDPOINT_URL"] == "https://s3.eu-north-1.amazonaws.com"
+        assert os.environ["AWS_S3_ENDPOINT"] == "https://s3.eu-north-1.amazonaws.com"
+
+        req = mock_urlopen.call_args.args[0]
+        assert req.full_url == "https://api.earthmover.io/repos/earthmover-public/era5-surface-aws"
+
+    def test_ensure_aws_region_does_not_override_existing_env(self, monkeypatch):
+        """Keep explicit user-provided AWS endpoint config untouched."""
+        from eurus.retrieval import _ensure_aws_region
+
+        monkeypatch.setenv("AWS_REGION", "custom-region")
+        monkeypatch.setenv("AWS_DEFAULT_REGION", "custom-default")
+        monkeypatch.setenv("AWS_ENDPOINT_URL", "https://custom.endpoint")
+        monkeypatch.setenv("AWS_S3_ENDPOINT", "https://custom.s3.endpoint")
+
+        response = MagicMock()
+        response.read.return_value = json.dumps(
+            {"bucket": {"extra_config": {"region_name": "us-west-2"}}}
+        ).encode("utf-8")
+        context_manager = MagicMock()
+        context_manager.__enter__.return_value = response
+
+        with patch("eurus.retrieval.urlopen", return_value=context_manager):
+            _ensure_aws_region("token")
+
+        assert os.environ["AWS_REGION"] == "custom-region"
+        assert os.environ["AWS_DEFAULT_REGION"] == "custom-default"
+        assert os.environ["AWS_ENDPOINT_URL"] == "https://custom.endpoint"
+        assert os.environ["AWS_S3_ENDPOINT"] == "https://custom.s3.endpoint"
 
 
 # ============================================================================
