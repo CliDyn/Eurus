@@ -7,6 +7,7 @@ Cloud-optimized data retrieval from Earthmover's ERA5 archive.
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import shutil
@@ -14,6 +15,7 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
+from urllib.request import Request, urlopen
 
 from eurus.config import (
     CONFIG,
@@ -69,6 +71,61 @@ def format_file_size(size_bytes: int) -> str:
     return f"{size_bytes:.2f} TB"
 
 
+def _ensure_aws_region(api_key: str, repo_name: Optional[str] = None) -> None:
+    """
+    Populate AWS S3 region/endpoint env vars from Arraylake repo metadata.
+
+    Some environments fail S3 resolution unless region/endpoint are explicit.
+    """
+    repo = repo_name or CONFIG.data_source
+    try:
+        req = Request(
+            f"https://api.earthmover.io/repos/{repo}",
+            headers={"Authorization": f"Bearer {api_key}"},
+        )
+        with urlopen(req, timeout=30) as resp:
+            payload = resp.read().decode("utf-8")
+        repo_meta = json.loads(payload)
+    except Exception as exc:
+        logger.debug("Could not auto-detect AWS region from Arraylake metadata: %s", exc)
+        return
+
+    if not isinstance(repo_meta, dict):
+        return
+
+    bucket = repo_meta.get("bucket")
+    if not isinstance(bucket, dict):
+        return
+
+    extra_cfg = bucket.get("extra_config")
+    if not isinstance(extra_cfg, dict):
+        return
+
+    region_name = extra_cfg.get("region_name")
+    if not isinstance(region_name, str) or not region_name:
+        return
+
+    endpoint = f"https://s3.{region_name}.amazonaws.com"
+    desired_values = {
+        "AWS_REGION": region_name,
+        "AWS_DEFAULT_REGION": region_name,
+        "AWS_ENDPOINT_URL": endpoint,
+        "AWS_S3_ENDPOINT": endpoint,
+    }
+    updated = False
+    for key, value in desired_values.items():
+        if not os.environ.get(key):
+            os.environ[key] = value
+            updated = True
+
+    if updated:
+        logger.info(
+            "Auto-set AWS region/endpoint for Arraylake: region=%s endpoint=%s",
+            region_name,
+            endpoint,
+        )
+
+
 def retrieve_era5_data(
     query_type: str,
     variable_id: str,
@@ -109,6 +166,7 @@ def retrieve_era5_data(
             "Error: ARRAYLAKE_API_KEY not found in environment.\n"
             "Please set it via environment variable or .env file."
         )
+    _ensure_aws_region(api_key)
 
     # Check dependencies
     try:
