@@ -191,7 +191,7 @@ class PythonREPLTool(BaseTool):
         """Clean up resources."""
         pass  # No kernel to close in simple implementation
 
-    def _capture_and_notify_plots(self, saved_files: list):
+    def _capture_and_notify_plots(self, saved_files: list, code: str = ""):
         """Capture plots and notify via callback."""
         if not self._plot_callback:
             return
@@ -202,7 +202,7 @@ class PythonREPLTool(BaseTool):
                     with open(filepath, 'rb') as f:
                         img_data = f.read()
                     b64_data = base64.b64encode(img_data).decode('utf-8')
-                    self._plot_callback(b64_data, filepath, "")
+                    self._plot_callback(b64_data, filepath, code)
             except Exception as e:
                 print(f"Warning: Failed to capture plot {filepath}: {e}")
 
@@ -284,7 +284,7 @@ class PythonREPLTool(BaseTool):
             
             # Capture plots and send to web interface
             if result_container["saved_files"]:
-                self._capture_and_notify_plots(result_container["saved_files"])
+                self._capture_and_notify_plots(result_container["saved_files"], code)
             
             if result_container["error"]:
                 return result_container["error"]
