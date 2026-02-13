@@ -65,12 +65,12 @@ from eurus.tools import get_all_tools
 BANNER = """
 ╔═══════════════════════════════════════════════════════════════════════════╗
 ║                                                                           ║
-║    ██╗   ██╗ ██████╗ ███████╗████████╗ ██████╗ ██╗  ██╗                   ║
-║    ██║   ██║██╔═══██╗██╔════╝╚══██╔══╝██╔═══██╗██║ ██╔╝                   ║
-║    ██║   ██║██║   ██║███████╗   ██║   ██║   ██║█████╔╝                    ║
-║    ╚██╗ ██╔╝██║   ██║╚════██║   ██║   ██║   ██║██╔═██╗                    ║
-║     ╚████╔╝ ╚██████╔╝███████║   ██║   ╚██████╔╝██║  ██╗                   ║
-║      ╚═══╝   ╚═════╝ ╚══════╝   ╚═╝    ╚═════╝ ╚═╝  ╚═╝                   ║
+║    ███████╗██╗   ██╗██████╗ ██╗   ██╗███████╗                              ║
+║    ██╔════╝██║   ██║██╔══██╗██║   ██║██╔════╝                              ║
+║    █████╗  ██║   ██║██████╔╝██║   ██║███████╗                              ║
+║    ██╔══╝  ██║   ██║██╔══██╗██║   ██║╚════██║                              ║
+║    ███████╗╚██████╔╝██║  ██║╚██████╔╝███████║                              ║
+║    ╚══════╝ ╚═════╝ ╚═╝  ╚═╝ ╚═════╝ ╚══════╝                              ║
 ║                                                                           ║
 ║                  AI Climate Physicist v2.0                                ║
 ║           ─────────────────────────────────────────                       ║
@@ -82,6 +82,7 @@ BANNER = """
 ║   • Compound Extremes: "Ocean Oven" detection (Heat + Stagnation)         ║
 ║   • Trend Analysis: Decadal trends with p-value significance              ║
 ║   • Teleconnections: Correlation and lead-lag analysis                    ║
+║   • Maritime Routing & Lagrangian Risk Assessment                         ║
 ║                                                                           ║
 ║   Commands: /help, /clear, /cache, /memory, /quit                         ║
 ║                                                                           ║
@@ -289,22 +290,8 @@ def main():
     # Initialize tools
     print("Starting Python kernel...")
 
-    # Ask for extended capabilities
-    print("\n" + "-" * 50)
-    enable_routing_input = input("Enable Maritime Routing & Risk tools? (Requires scgraph) [y/N]: ").strip().lower()
-    enable_routing = enable_routing_input in ('y', 'yes')
-
-    print("\nCapabilities enabled:")
-    print("  [✓] Data Retrieval (ERA5)")
-    print("  [✓] Python Analysis (REPL)")
-    print("  [✓] Climate Science Tools (Diagnostics, EOF, Compound Extremes, Trends)")
-    if enable_routing:
-        print("  [✓] Maritime Routing & Risk")
-    else:
-        print("  [ ] Maritime Routing & Risk (disabled)")
-    print("-" * 50 + "\n")
-
-    tools = get_all_tools(enable_routing=enable_routing, enable_guide=True)
+    # All capabilities enabled by default (including maritime routing)
+    tools = get_all_tools(enable_routing=True, enable_guide=True)
     logger.info(f"Loaded {len(tools)} tools")
 
     # Initialize LLM
