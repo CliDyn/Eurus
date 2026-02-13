@@ -362,6 +362,7 @@ def main():
                 
                 full_response = ""
                 tool_executed = False
+                last_agent_message = None  # Track the last message from the agent node
                 
                 # Limit recursion to prevent infinite loops (~15 tool calls max)
                 config = {"recursion_limit": 35}
@@ -372,9 +373,10 @@ def main():
                             # LLM is producing output
                             if "messages" in node_output:
                                 for msg in node_output["messages"]:
+                                    last_agent_message = msg  # Always track latest
+                                    
                                     # Check for tool calls (only if list is non-empty)
                                     has_tool_calls = hasattr(msg, 'tool_calls') and msg.tool_calls
-                                    has_content = hasattr(msg, 'content') and msg.content
                                     
                                     if has_tool_calls:
                                         for tc in msg.tool_calls:
@@ -382,14 +384,26 @@ def main():
                                             print(f"🔧 Calling: {tool_name}...", flush=True)
                                             tool_executed = True
                                     
-                                    # Also check for content (not elif — a message can have both)
-                                    if has_content:
-                                        if not tool_executed:
-                                            print("Eurus: ", end="", flush=True)
+                                    # Check for content — extract text from any format
+                                    content = getattr(msg, 'content', None)
+                                    if content:
+                                        # Handle content that might be a list of blocks
+                                        if isinstance(content, list):
+                                            text_parts = [
+                                                block.get('text', '') if isinstance(block, dict) else str(block)
+                                                for block in content
+                                            ]
+                                            text = ''.join(text_parts)
                                         else:
-                                            print("\n\n📝 Response:", flush=True)
-                                        print(msg.content, flush=True)
-                                        full_response = msg.content
+                                            text = str(content)
+                                        
+                                        if text.strip():
+                                            if not tool_executed:
+                                                print("Eurus: ", end="", flush=True)
+                                            else:
+                                                print("\n\n📝 Response:", flush=True)
+                                            print(text, flush=True)
+                                            full_response = text
                         
                         elif node_name == "tools":
                             # Tool execution completed
@@ -400,15 +414,30 @@ def main():
                 
                 print("─" * 75 + "\n")
                 
+                # If streaming didn't capture content, extract from last agent message
+                if not full_response and last_agent_message is not None:
+                    content = getattr(last_agent_message, 'content', None)
+                    if content:
+                        if isinstance(content, list):
+                            text_parts = [
+                                block.get('text', '') if isinstance(block, dict) else str(block)
+                                for block in content
+                            ]
+                            full_response = ''.join(text_parts)
+                        else:
+                            full_response = str(content)
+                        
+                        if full_response.strip():
+                            print(f"\n📝 Response:\n{full_response}")
+                            print("─" * 75 + "\n")
+                
                 # Update messages for the next turn
                 if full_response:
                     messages.append({"role": "assistant", "content": full_response})
                     memory.add_message("assistant", full_response)
                 else:
-                    # Streaming completed but no text response was captured.
-                    # This can happen if the LLM only used tools without a final summary.
-                    # Do NOT re-invoke — that would re-execute all tools.
-                    logger.warning("Streaming completed without capturing final text response")
+                    # Truly no content — agent only used tools with no summary
+                    logger.warning("Agent produced no text response after streaming")
                     fallback_text = "Analysis complete. Let me know if you need anything else!"
                     messages.append({"role": "assistant", "content": fallback_text})
                     memory.add_message("assistant", fallback_text)
