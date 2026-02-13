@@ -499,7 +499,7 @@ class AgentConfig:
     """Configuration for the ERA5 Agent."""
 
     # LLM Settings
-    model_name: str = "gpt-4o"
+    model_name: str = "gpt-5.2"
     temperature: float = 0
     max_tokens: int = 4096
 

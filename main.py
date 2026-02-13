@@ -385,14 +385,18 @@ def main():
                             # LLM is producing output
                             if "messages" in node_output:
                                 for msg in node_output["messages"]:
-                                    # Check for tool calls
-                                    if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                                    # Check for tool calls (only if list is non-empty)
+                                    has_tool_calls = hasattr(msg, 'tool_calls') and msg.tool_calls
+                                    has_content = hasattr(msg, 'content') and msg.content
+                                    
+                                    if has_tool_calls:
                                         for tc in msg.tool_calls:
                                             tool_name = tc.get('name', 'unknown')
                                             print(f"🔧 Calling: {tool_name}...", flush=True)
                                             tool_executed = True
-                                    # Check for final content
-                                    elif hasattr(msg, 'content') and msg.content:
+                                    
+                                    # Also check for content (not elif — a message can have both)
+                                    if has_content:
                                         if not tool_executed:
                                             print("Eurus: ", end="", flush=True)
                                         else:
@@ -414,22 +418,15 @@ def main():
                     messages.append({"role": "assistant", "content": full_response})
                     memory.add_message("assistant", full_response)
                 else:
-                    # Fallback: use invoke if streaming didn't capture content
-                    print("(Processing...)", flush=True)
-                    result = agent.invoke({"messages": messages}, config=config)
-                    messages = result["messages"]
-                    last_message = messages[-1]
-                    
-                    if hasattr(last_message, 'content') and last_message.content:
-                        response_text = last_message.content
-                    elif isinstance(last_message, dict) and last_message.get('content'):
-                        response_text = last_message['content']
-                    else:
-                        response_text = str(last_message)
-                    
-                    print(f"\nEurus: {response_text}")
+                    # Streaming completed but no text response was captured.
+                    # This can happen if the LLM only used tools without a final summary.
+                    # Do NOT re-invoke — that would re-execute all tools.
+                    logger.warning("Streaming completed without capturing final text response")
+                    fallback_text = "Analysis complete. Let me know if you need anything else!"
+                    messages.append({"role": "assistant", "content": fallback_text})
+                    memory.add_message("assistant", fallback_text)
+                    print(f"Eurus: {fallback_text}")
                     print("─" * 75 + "\n")
-                    memory.add_message("assistant", response_text)
 
             except KeyboardInterrupt:
                 print("\n\nInterrupted. Type /quit to exit or continue with a new question.")
