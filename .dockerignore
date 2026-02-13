@@ -1,0 +1,44 @@
+# Virtual environments
+.venv/
+venv/
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Project artifacts (not needed in container)
+data/
+.memory/
+.cache/
+.claude/
+icechunk/
+logs/
+*.log
+
+# Build/docs
+docs/
+publications/
+deep_searches/
+bug_reports/
+test_reports/
+dummy_key/
+
+# Misc
+.DS_Store
+project_structure.txt
+save_new.py
+improvements_feedback.txt
+user_queries.txt

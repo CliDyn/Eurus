@@ -193,10 +193,17 @@ class SmartConversationMemory:
         
         summary = "[Previous conversation summary]\n" + "\n".join(summary_parts)
         
-        # Replace old messages with summary + recent
+        # Truncate summary to target token size
+        while TokenCounter.count(summary) > SUMMARY_TARGET_TOKENS and summary:
+            # Trim from the oldest messages in the summary
+            lines = summary.split('\n')
+            if len(lines) <= 2:
+                break
+            summary = lines[0] + '\n' + '\n'.join(lines[2:])
+
         summary_msg = Message(
             role="system",
-            content=summary[:SUMMARY_TARGET_TOKENS * 4],  # Rough limit
+            content=summary,
             is_compressed=True
         )
         

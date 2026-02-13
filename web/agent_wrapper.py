@@ -25,7 +25,7 @@ from langchain.agents import create_agent
 
 # IMPORT FROM EURUS PACKAGE - SINGLE SOURCE OF TRUTH
 from eurus.config import CONFIG, AGENT_SYSTEM_PROMPT
-from eurus.memory import get_memory  # Use SINGLETON so tools can register datasets!
+from eurus.memory import get_memory, SmartConversationMemory  # Singleton for datasets, per-session for chat
 from eurus.tools import get_all_tools
 from eurus.tools.repl import PythonREPLTool
 
@@ -43,10 +43,10 @@ class AgentSession:
         self._messages: List[Dict] = []
         self._initialized = False
         
-        # Use global memory singleton (so tools like retrieve_era5_data can register datasets!)
-        # But clear conversation history for fresh session (datasets cache remains)
+        # Global singleton keeps the dataset cache (shared across sessions)
         self._memory = get_memory()
-        self._memory.clear_conversation()  # Fresh chat, keep cached datasets
+        # Per-session conversation memory — never touches other sessions
+        self._conversation = SmartConversationMemory()
 
         # Queue for captured plots (thread-safe)
         self._plot_queue: Queue = Queue()
@@ -129,7 +129,7 @@ class AgentSession:
         while not self._plot_queue.empty():
             try:
                 plots.append(self._plot_queue.get_nowait())
-            except:
+            except Exception:
                 break
         return plots
 
@@ -148,7 +148,7 @@ class AgentSession:
         self.get_pending_plots()
 
         # Add user message to history (session-local memory)
-        self._memory.add_message("user", user_message)
+        self._conversation.add_message("user", user_message)
         self._messages.append({"role": "user", "content": user_message})
 
         try:
@@ -231,7 +231,7 @@ class AgentSession:
                     await stream_callback("plot", "", data=base64_data, path=filepath, code=code)
 
             # Save to memory
-            self._memory.add_message("assistant", response_text)
+            self._conversation.add_message("assistant", response_text)
 
             return response_text
 
@@ -290,6 +290,7 @@ def get_agent_session() -> AgentSession:
 
 def shutdown_agent_session():
     """Shutdown all agent sessions."""
+    count = len(_sessions)
     for conn_id in list(_sessions.keys()):
         close_session(conn_id)
-    logger.info(f"Shutdown {len(_sessions)} sessions")
+    logger.info(f"Shutdown {count} sessions")

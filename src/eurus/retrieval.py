@@ -11,6 +11,7 @@ import json
 import logging
 import os
 import shutil
+import threading
 import time
 from datetime import datetime
 from pathlib import Path
@@ -71,24 +72,37 @@ def format_file_size(size_bytes: int) -> str:
     return f"{size_bytes:.2f} TB"
 
 
+_aws_region_lock = threading.Lock()
+_aws_region_set = False
+
+
 def _ensure_aws_region(api_key: str, repo_name: Optional[str] = None) -> None:
     """
     Populate AWS S3 region/endpoint env vars from Arraylake repo metadata.
 
     Some environments fail S3 resolution unless region/endpoint are explicit.
     """
-    repo = repo_name or CONFIG.data_source
-    try:
-        req = Request(
-            f"https://api.earthmover.io/repos/{repo}",
-            headers={"Authorization": f"Bearer {api_key}"},
-        )
-        with urlopen(req, timeout=30) as resp:
-            payload = resp.read().decode("utf-8")
-        repo_meta = json.loads(payload)
-    except Exception as exc:
-        logger.debug("Could not auto-detect AWS region from Arraylake metadata: %s", exc)
-        return
+    global _aws_region_set
+    if _aws_region_set:
+        return  # Only run once per process
+
+    with _aws_region_lock:
+        if _aws_region_set:
+            return  # Double-checked locking
+
+        repo = repo_name or CONFIG.data_source
+        try:
+            req = Request(
+                f"https://api.earthmover.io/repos/{repo}",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            with urlopen(req, timeout=30) as resp:
+                payload = resp.read().decode("utf-8")
+            repo_meta = json.loads(payload)
+        except Exception as exc:
+            logger.debug("Could not auto-detect AWS region from Arraylake metadata: %s", exc)
+            _aws_region_set = True  # Don't retry on failure
+            return
 
     if not isinstance(repo_meta, dict):
         return
@@ -118,12 +132,13 @@ def _ensure_aws_region(api_key: str, repo_name: Optional[str] = None) -> None:
             os.environ[key] = value
             updated = True
 
-    if updated:
-        logger.info(
-            "Auto-set AWS region/endpoint for Arraylake: region=%s endpoint=%s",
-            region_name,
-            endpoint,
-        )
+        if updated:
+            logger.info(
+                "Auto-set AWS region/endpoint for Arraylake: region=%s endpoint=%s",
+                region_name,
+                endpoint,
+            )
+        _aws_region_set = True
 
 
 def retrieve_era5_data(
@@ -305,6 +320,11 @@ def retrieve_era5_data(
             if min_longitude == -180 and max_longitude == 180:
                 req_min = 0.0
                 req_max = 360.0
+            elif min_longitude > max_longitude and min_longitude >= 0 and max_longitude >= 0:
+                # Already in 0-360 format but wraps around 0° (e.g., Mediterranean: 354 to 42)
+                # This comes from predefined regions — go directly to two-slice logic
+                req_min = min_longitude
+                req_max = max_longitude
             elif min_longitude < 0:
                 # Convert -180/+180 to 0-360 for ERA5
                 # e.g., -0.9 becomes 359.1
@@ -347,7 +367,6 @@ def retrieve_era5_data(
                 )
                 
                 # Concatenate along longitude
-                import xarray as xr
                 subset = xr.concat([subset_west, subset_east], dim='longitude')
             else:
                 # Normal case - no prime meridian crossing
@@ -371,21 +390,29 @@ def retrieve_era5_data(
                 import numpy as np
                 last_available = str(np.datetime_as_string(time_max, unit='D'))
                 return (
-                    f"Error: No data available for the requested time range.\\n"
-                    f"Requested: {start_date} to {end_date}\\n"
-                    f"ERA5 data on Arraylake is available until {last_available}.\\n\\n"
+                    f"Error: No data available for the requested time range.\n"
+                    f"Requested: {start_date} to {end_date}\n"
+                    f"ERA5 data on Arraylake is available until {last_available}.\n\n"
                     f"Please request dates up to {last_available}."
                 )
 
-            # Check for empty data (all NaNs)
-            # We use .compute() to ensure we actually check the values if they are lazy
-            if ds_out[short_var].isnull().all().compute():
+            # Check for empty data (all NaNs) — only check 1st timestep to avoid OOM
+            if ds_out[short_var].isel(time=0).isnull().all().compute():
                  return (
                     f"Error: The downloaded data for '{short_var}' is entirely empty (NaNs).\n"
                     f"Possible causes:\n"
                     f"1. The requested date/region has no data (e.g., SST over land).\n"
                     f"2. The request is too recent (ERA5T has a 5-day delay).\n"
                     f"3. Region bounds might be invalid or cross the prime meridian incorrectly."
+                )
+
+            # Size guard — prevent downloading datasets larger than the configured limit
+            estimated_gb = ds_out.nbytes / (1024 ** 3)
+            if estimated_gb > CONFIG.max_download_size_gb:
+                return (
+                    f"Error: Estimated download size ({estimated_gb:.1f} GB) exceeds the "
+                    f"{CONFIG.max_download_size_gb} GB limit.\n"
+                    f"Try narrowing the time range or spatial area."
                 )
 
             # Clear encoding for clean serialization

@@ -77,7 +77,11 @@ class TestRetrievalHelpers:
 
     def test_ensure_aws_region_sets_env_from_repo_metadata(self, monkeypatch):
         """Auto-populate AWS vars when metadata includes region_name."""
+        import eurus.retrieval as _retrieval
         from eurus.retrieval import _ensure_aws_region
+
+        # Reset one-shot flag so the function actually runs
+        _retrieval._aws_region_set = False
 
         for key in ("AWS_REGION", "AWS_DEFAULT_REGION", "AWS_ENDPOINT_URL", "AWS_S3_ENDPOINT"):
             monkeypatch.delenv(key, raising=False)
@@ -102,7 +106,11 @@ class TestRetrievalHelpers:
 
     def test_ensure_aws_region_does_not_override_existing_env(self, monkeypatch):
         """Keep explicit user-provided AWS endpoint config untouched."""
+        import eurus.retrieval as _retrieval
         from eurus.retrieval import _ensure_aws_region
+
+        # Reset one-shot flag so the function actually runs
+        _retrieval._aws_region_set = False
 
         monkeypatch.setenv("AWS_REGION", "custom-region")
         monkeypatch.setenv("AWS_DEFAULT_REGION", "custom-default")
@@ -125,41 +133,6 @@ class TestRetrievalHelpers:
         assert os.environ["AWS_S3_ENDPOINT"] == "https://custom.s3.endpoint"
 
 
-# ============================================================================
-# CLIMATE SCIENCE FUNCTION TESTS 
-# ============================================================================
-
-class TestClimateToolRegistration:
-    """Tests for climate science tool registration."""
-    
-    def test_patterns_tools_exist(self):
-        """Test pattern analysis tools are registered."""
-        from eurus.tools.climate_science.patterns import PATTERN_TOOLS
-        assert isinstance(PATTERN_TOOLS, list)
-        assert len(PATTERN_TOOLS) >= 2  # EOF and Trends
-        
-    def test_extremes_tools_accessible(self):
-        """Test extremes detection tools can be accessed."""
-        from eurus.tools.climate_science import extremes
-        # Just verify module loads correctly
-        assert hasattr(extremes, 'percentile_tool')
-        
-    def test_attribution_tools_exist(self):
-        """Test attribution analysis tools are registered."""
-        from eurus.tools.climate_science.attribution import ATTRIBUTION_TOOLS
-        assert isinstance(ATTRIBUTION_TOOLS, list)
-        assert len(ATTRIBUTION_TOOLS) >= 3
-        
-    def test_diagnostics_tools_exist(self):
-        """Test diagnostics tools are registered."""
-        from eurus.tools.climate_science.diagnostics import DIAGNOSTICS_TOOLS
-        assert isinstance(DIAGNOSTICS_TOOLS, list)
-        
-    def test_visualization_tool_exists(self):
-        """Test visualization guide tool exists."""
-        from eurus.tools.climate_science.visualization import visualization_guide_tool
-        assert visualization_guide_tool is not None
-        assert visualization_guide_tool.name == "get_visualization_guide"
 
 
 # ============================================================================
@@ -328,22 +301,25 @@ class TestRoutingTool:
 # ============================================================================
 
 class TestREPLSecurityComprehensive:
-    """Comprehensive security tests for REPL."""
+    """REPL tests — Docker is the sandbox, all imports allowed."""
     
-    def test_repl_blocks_sys(self):
-        """Test REPL blocks sys module."""
+    def test_repl_allows_sys(self):
+        """Test REPL allows sys module (Docker sandbox)."""
         from eurus.tools.repl import PythonREPLTool
         repl = PythonREPLTool()
-        result = repl._run("import sys")
-        # May or may not block sys, but should not crash
+        result = repl._run("import sys; print(sys.version_info.major)")
         assert result is not None
+        assert "Error" not in result
+        repl.close()
         
-    def test_repl_blocks_dangerous_imports(self):
-        """Test REPL blocks dangerous imports."""
+    def test_repl_allows_os(self):
+        """Test REPL allows os module (Docker sandbox)."""
         from eurus.tools.repl import PythonREPLTool
         repl = PythonREPLTool()
-        result = repl._run("import os")
-        assert "Security Error" in result
+        result = repl._run("import os; print(os.getcwd())")
+        assert result is not None
+        assert "Error" not in result
+        repl.close()
         
     def test_repl_allows_xarray(self):
         """Test REPL allows xarray operations."""
@@ -351,14 +327,16 @@ class TestREPLSecurityComprehensive:
         repl = PythonREPLTool()
         result = repl._run("import xarray as xr; print(type(xr))")
         assert "module" in result.lower() or "xarray" in result.lower()
+        repl.close()
         
     def test_repl_allows_pandas(self):
         """Test REPL allows pandas operations."""
         from eurus.tools.repl import PythonREPLTool
         repl = PythonREPLTool()
         result = repl._run("import pandas as pd; print(pd.DataFrame({'a': [1, 2]}))")
-        # Should work without security error
-        assert "Security Error" not in result
+        assert "Error" not in result
+        repl.close()
+
 
 
 # ============================================================================

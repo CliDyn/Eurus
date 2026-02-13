@@ -2,24 +2,30 @@
 Superb Python REPL Tool
 =======================
 A persistent Python execution environment for the agent.
-Supports state preservation, plotting, and data analysis.
+Uses a SUBPROCESS for true process isolation — can be cleanly killed on timeout.
 
 PLOT CAPTURE: When running in web mode, plots are captured via callback.
 """
 
 import sys
 import io
+import json
+import logging
 import gc
 import os
+import re
 import base64
-import contextlib
+import tempfile
+import subprocess
+import threading
 import traceback
-import threading  # For global REPL lock
 import matplotlib
 # Force non-interactive backend to prevent crashes on headless servers
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.colors as mcolors  # Pre-import for custom colormaps
+
+logger = logging.getLogger(__name__)
 import matplotlib.cm as cm  # Pre-import for colormap access
 
 # =============================================================================
@@ -104,43 +110,291 @@ from langchain_core.tools import BaseTool
 # Import PLOTS_DIR for correct plot saving location
 from eurus.config import PLOTS_DIR
 
-# Pre-import common scientific libraries for convenience
+# Pre-import common scientific libraries for convenience (parent-side only)
 import pandas as pd
 import numpy as np
 import xarray as xr
 from datetime import datetime, timedelta
 
-# Security: Block dangerous imports and builtins
-BLOCKED_IMPORTS = ['subprocess', 'socket', 'multiprocessing', 'ctypes']
-BLOCKED_PATTERNS = [
-    'import os',
-    'from os',
-    'import sys',
-    'from sys',
-    'import subprocess',
-    'import socket',
-    'open(',
-    '__import__',
-    'exec(',
-    'eval(',
-]
-
-def _check_security(code: str) -> str | None:
-    """Check code for security violations. Returns error message or None."""
-    # Check blocked patterns first
-    for pattern in BLOCKED_PATTERNS:
-        if pattern in code:
-            return f"Security Error: '{pattern.split('(')[0]}' is blocked for safety."
-    # Also check BLOCKED_IMPORTS (catches 'from subprocess import X')
-    for blocked in BLOCKED_IMPORTS:
-        if blocked in code:
-            return f"Security Error: '{blocked}' module is blocked for safety."
-    return None
 
 
-# Global lock for matplotlib thread safety
-_repl_lock = threading.Lock()
+# =============================================================================
+# PERSISTENT SUBPROCESS REPL
+# =============================================================================
 
+# The Python script that runs inside the subprocess.
+# It receives JSON commands on stdin and sends JSON responses on stdout.
+_SUBPROCESS_SCRIPT = r'''
+import sys
+import os
+import json
+import gc
+from io import StringIO
+
+# Apply Eurus matplotlib style INSIDE the subprocess
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import matplotlib.cm as cm
+
+_style = json.loads(os.environ.get("EURUS_MPL_STYLE", "{}"))
+if _style:
+    matplotlib.rcParams.update(_style)
+_colors = json.loads(os.environ.get("EURUS_MPL_COLORS", "[]"))
+if _colors:
+    matplotlib.rcParams["axes.prop_cycle"] = matplotlib.cycler(color=_colors)
+
+# Pre-import scientific stack
+import pandas as pd
+import numpy as np
+import xarray as xr
+from datetime import datetime, timedelta
+
+# Set up execution globals with pre-loaded libraries
+exec_globals = {
+    "__builtins__": __builtins__,
+    "pd": pd,
+    "np": np,
+    "xr": xr,
+    "plt": plt,
+    "mcolors": mcolors,
+    "cm": cm,
+    "datetime": datetime,
+    "timedelta": timedelta,
+    "PLOTS_DIR": os.environ.get("EURUS_PLOTS_DIR", "plots"),
+}
+
+# Signal readiness
+print("SUBPROCESS_READY", flush=True)
+
+while True:
+    try:
+        line = input()
+        if line == "EXIT_SUBPROCESS":
+            break
+
+        cmd = json.loads(line)
+
+        if cmd["type"] == "exec":
+            code = cmd["code"]
+
+            stdout_capture = StringIO()
+            stderr_capture = StringIO()
+            old_stdout, old_stderr = sys.stdout, sys.stderr
+
+            try:
+                sys.stdout = stdout_capture
+                sys.stderr = stderr_capture
+
+                # Try eval first (expression mode), fall back to exec
+                try:
+                    compiled = compile(code, "<repl>", "eval")
+                    result = eval(compiled, exec_globals)
+                    output = stdout_capture.getvalue()
+                    if result is not None:
+                        output += repr(result)
+                    if not output.strip():
+                        output = repr(result) if result is not None else "(No output)"
+                except SyntaxError:
+                    exec(code, exec_globals)
+                    output = stdout_capture.getvalue()
+                    if not output.strip():
+                        output = "(Executed successfully. Use print() to see results.)"
+
+                sys.stdout, sys.stderr = old_stdout, old_stderr
+                result_json = {
+                    "status": "success",
+                    "stdout": output.strip(),
+                    "stderr": stderr_capture.getvalue(),
+                }
+
+            except Exception as e:
+                sys.stdout, sys.stderr = old_stdout, old_stderr
+                import traceback
+                result_json = {
+                    "status": "error",
+                    "error": f"Error: {str(e)}\n{traceback.format_exc()}",
+                    "stdout": stdout_capture.getvalue(),
+                    "stderr": stderr_capture.getvalue(),
+                }
+            finally:
+                plt.close("all")
+                gc.collect()
+
+            print(json.dumps(result_json), flush=True)
+
+    except EOFError:
+        break
+    except Exception as e:
+        # Fatal error in the communication loop itself
+        old_stdout = sys.__stdout__
+        sys.stdout = old_stdout
+        print(json.dumps({"status": "fatal", "error": str(e)}), flush=True)
+'''
+
+
+class PersistentREPL:
+    """
+    Manages a persistent Python subprocess for code execution.
+    Provides true process isolation with clean kill on timeout.
+    """
+
+    def __init__(self, working_dir: str = "."):
+        self._working_dir = working_dir
+        self._process: Optional[subprocess.Popen] = None
+        self._temp_script: Optional[str] = None
+        self._lock = threading.Lock()  # Serialize access per instance
+        self._start_subprocess()
+
+    def _start_subprocess(self):
+        """Start a new Python subprocess with Eurus environment."""
+        # Write the subprocess script to a temp file
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".py", delete=False, prefix="eurus_repl_"
+        ) as f:
+            f.write(_SUBPROCESS_SCRIPT)
+            self._temp_script = f.name
+
+        # Build env: inject matplotlib style + PLOTS_DIR
+        env = os.environ.copy()
+        env["EURUS_MPL_STYLE"] = json.dumps(
+            {k: v for k, v in _EURUS_STYLE.items() if isinstance(v, (int, float, str, bool))}
+        )
+        env["EURUS_MPL_COLORS"] = json.dumps(_EURUS_COLORS)
+        env["EURUS_PLOTS_DIR"] = str(PLOTS_DIR)
+        env["MPLBACKEND"] = "Agg"
+        env["PYTHONUNBUFFERED"] = "1"
+
+        self._process = subprocess.Popen(
+            [sys.executable, "-u", self._temp_script],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=0,
+            cwd=self._working_dir if os.path.isdir(self._working_dir) else None,
+            env=env,
+        )
+
+        # Wait for ready signal
+        ready_line = self._process.stdout.readline()
+        if "SUBPROCESS_READY" not in ready_line:
+            raise RuntimeError(f"Subprocess failed to start: {ready_line!r}")
+
+        logger.info("Started REPL subprocess (PID: %d)", self._process.pid)
+
+    def _ensure_alive(self):
+        """Restart subprocess if it has died."""
+        if self._process is None or self._process.poll() is not None:
+            logger.warning("REPL subprocess died — restarting")
+            self._cleanup_process()
+            self._start_subprocess()
+
+    def run(self, code: str, timeout: int = 300) -> str:
+        """Execute code in the subprocess. Returns output string."""
+        with self._lock:
+            self._ensure_alive()
+
+            cmd = json.dumps({"type": "exec", "code": code}) + "\n"
+            try:
+                self._process.stdin.write(cmd)
+                self._process.stdin.flush()
+            except (BrokenPipeError, OSError) as e:
+                logger.error("Subprocess stdin broken: %s — restarting", e)
+                self._cleanup_process()
+                self._start_subprocess()
+                return f"Error: REPL subprocess crashed. Please re-run your code."
+
+            # Read response with timeout
+            result_line = self._read_with_timeout(timeout)
+
+            if result_line is None:
+                # Timeout — kill subprocess and restart
+                logger.warning("REPL execution timed out after %ds — killing subprocess", timeout)
+                self._kill_subprocess()
+                self._start_subprocess()
+                return (
+                    "TIMEOUT ERROR: Execution exceeded "
+                    f"{timeout} seconds ({timeout // 60} min). "
+                    "TIP: Resample data to daily/monthly before plotting "
+                    "(e.g., ds.resample(time='D').mean())."
+                )
+
+            try:
+                result = json.loads(result_line)
+            except json.JSONDecodeError:
+                return f"Error: Malformed response from subprocess: {result_line!r}"
+
+            if result["status"] == "success":
+                output = result.get("stdout", "")
+                stderr = result.get("stderr", "")
+                if stderr:
+                    output = f"{output}\n{stderr}" if output else stderr
+                return output or "(No output)"
+            elif result["status"] == "error":
+                return result.get("error", "Unknown error")
+            else:
+                return f"Fatal subprocess error: {result.get('error', 'Unknown')}"
+
+    def _read_with_timeout(self, timeout: int) -> Optional[str]:
+        """Read one line from subprocess stdout with a timeout."""
+        result = [None]
+
+        def _reader():
+            try:
+                result[0] = self._process.stdout.readline()
+            except Exception:
+                pass
+
+        reader_thread = threading.Thread(target=_reader, daemon=True)
+        reader_thread.start()
+        reader_thread.join(timeout=timeout)
+
+        if reader_thread.is_alive():
+            return None  # Timed out
+        return result[0] if result[0] else None
+
+    def _kill_subprocess(self):
+        """Force-kill the subprocess."""
+        if self._process:
+            try:
+                self._process.terminate()
+                try:
+                    self._process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    self._process.kill()
+                    self._process.wait(timeout=2)
+            except Exception as e:
+                logger.error("Error killing subprocess: %s", e)
+            self._process = None
+
+    def _cleanup_process(self):
+        """Clean up subprocess and temp files."""
+        self._kill_subprocess()
+        if self._temp_script and os.path.exists(self._temp_script):
+            try:
+                os.unlink(self._temp_script)
+            except OSError:
+                pass
+            self._temp_script = None
+
+    def close(self):
+        """Gracefully shutdown the subprocess."""
+        if self._process and self._process.poll() is None:
+            try:
+                self._process.stdin.write("EXIT_SUBPROCESS\n")
+                self._process.stdin.flush()
+                self._process.wait(timeout=3)
+                logger.info("REPL subprocess exited gracefully (PID: %d)", self._process.pid)
+            except Exception:
+                self._kill_subprocess()
+        self._cleanup_process()
+
+
+# =============================================================================
+# LANGCHAIN TOOL
+# =============================================================================
 
 class PythonREPLInput(BaseModel):
     code: str = Field(description="The Python code to execute.")
@@ -161,36 +415,27 @@ class PythonREPLTool(BaseTool):
         "Pre-loaded: pd, np, xr, plt, mcolors, cm, datetime, timedelta, PLOTS_DIR (string path)"
     )
     args_schema: Type[BaseModel] = PythonREPLInput
-    globals_dict: Dict = Field(default_factory=dict, exclude=True)
     working_dir: str = "."
+    _repl: Optional[PersistentREPL] = None
     _plot_callback: Optional[Callable] = None  # For web interface
+    _displayed_plots: set = set()
 
     def __init__(self, working_dir: str = ".", **kwargs):
         super().__init__(**kwargs)
         self.working_dir = working_dir
         self._plot_callback = None
-        self._displayed_plots: set = set()  # Track files already opened in terminal
-        # Initialize globals with SAFE libraries only
-        # SECURITY: os/shutil/Path removed - they allow reading arbitrary files
-        self.globals_dict = {
-            "pd": pd,
-            "np": np,
-            "xr": xr,
-            "plt": plt,
-            "mcolors": mcolors,
-            "cm": cm,
-            "datetime": datetime,
-            "timedelta": timedelta,
-            "PLOTS_DIR": str(PLOTS_DIR),  # STRING only! Path object allows .parent exploit
-        }
+        self._displayed_plots = set()
+        self._repl = PersistentREPL(working_dir=working_dir)
 
     def set_plot_callback(self, callback: Callable):
         """Set callback for plot capture (used by web interface)."""
         self._plot_callback = callback
-        
+
     def close(self):
-        """Clean up resources."""
-        pass  # No kernel to close in simple implementation
+        """Clean up subprocess resources."""
+        if self._repl:
+            self._repl.close()
+            self._repl = None
 
     def _display_image_in_terminal(self, filepath: str, base64_data: str):
         """Display image in terminal — iTerm2/VSCode inline, or macOS Preview fallback."""
@@ -198,21 +443,21 @@ class PythonREPLTool(BaseTool):
         if filepath in self._displayed_plots:
             return
         self._displayed_plots.add(filepath)
-        
+
         try:
             term_program = os.environ.get("TERM_PROGRAM", "")
-            
+
             # iTerm2 inline image protocol (only iTerm2 supports this)
             if "iTerm.app" in term_program:
                 sys.stdout.write(f"\033]1337;File=inline=1;width=auto;preserveAspectRatio=1:{base64_data}\a\n")
                 sys.stdout.flush()
                 return
-            
+
             # Fallback: open in Preview on macOS (only in CLI, not web)
             if not self._plot_callback and os.path.exists(filepath):
-                import subprocess
-                subprocess.Popen(["open", filepath], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                
+                import subprocess as _sp
+                _sp.Popen(["open", filepath], stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+
         except Exception as e:
             logger.warning(f"Failed to display image in terminal: {e}")
 
@@ -224,10 +469,10 @@ class PythonREPLTool(BaseTool):
                     with open(filepath, 'rb') as f:
                         img_data = f.read()
                     b64_data = base64.b64encode(img_data).decode('utf-8')
-                    
+
                     # Display in terminal
                     self._display_image_in_terminal(filepath, b64_data)
-                    
+
                     # Send to web UI via callback
                     if self._plot_callback:
                         self._plot_callback(b64_data, filepath, code)
@@ -235,99 +480,48 @@ class PythonREPLTool(BaseTool):
                 print(f"Warning: Failed to capture plot {filepath}: {e}")
 
     def _run(self, code: str) -> str:
-        """Execute the python code and return the output."""
-        import threading
+        """Execute the python code in the subprocess and return the output."""
         from eurus.config import PLOTS_DIR
 
-        # Security check FIRST
-        security_error = _check_security(code)
-        if security_error:
-            return security_error
+        # Snapshot plots directory BEFORE execution
+        image_exts = {'.png', '.jpg', '.jpeg', '.svg', '.pdf', '.gif', '.webp'}
+        try:
+            before_files = {
+                f: os.path.getmtime(os.path.join(PLOTS_DIR, f))
+                for f in os.listdir(PLOTS_DIR)
+                if os.path.splitext(f)[1].lower() in image_exts
+            }
+        except FileNotFoundError:
+            before_files = {}
 
-        # Use global lock for matplotlib thread safety
-        with _repl_lock:
-            result_container = {"output": None, "error": None}
-            
-            # Snapshot plots directory BEFORE execution
-            image_exts = {'.png', '.jpg', '.jpeg', '.svg', '.pdf', '.gif', '.webp'}
-            try:
-                before_files = {
-                    f: os.path.getmtime(os.path.join(PLOTS_DIR, f))
-                    for f in os.listdir(PLOTS_DIR)
-                    if os.path.splitext(f)[1].lower() in image_exts
-                }
-            except FileNotFoundError:
-                before_files = {}
-            
-            def execute_code():
-                # Thread-safe stdout capture using contextlib
-                redirected_output = io.StringIO()
-                
-                try:
-                    # Use redirect_stdout for thread-safe output capture
-                    with contextlib.redirect_stdout(redirected_output):
-                        # Try to compile as an expression first (like a real REPL)
-                        try:
-                            compiled = compile(code, '<repl>', 'eval')
-                            result = eval(compiled, self.globals_dict)
-                            output = redirected_output.getvalue()
-                            if result is not None:
-                                output += repr(result)
-                            result_container["output"] = output.strip() if output.strip() else repr(result) if result is not None else "(No output)"
-                        except SyntaxError:
-                            # Not an expression, execute as statements
-                            exec(code, self.globals_dict)
-                            output = redirected_output.getvalue()
-                            
-                            if not output.strip():
-                                result_container["output"] = "(Executed successfully. Use print() to see results.)"
-                            else:
-                                result_container["output"] = output.strip()
-                        
-                except Exception as e:
-                    result_container["error"] = f"Error: {str(e)}\n{traceback.format_exc()}"
-                    
-                finally:
-                    # Close figures AFTER saving
-                    plt.close('all')
-                    gc.collect()
-            
-            # Run in thread with 300-second timeout (5 min) for large data operations
-            exec_thread = threading.Thread(target=execute_code)
-            exec_thread.start()
-            exec_thread.join(timeout=300)
+        # Execute in subprocess
+        output = self._repl.run(code, timeout=300)
 
-            if exec_thread.is_alive():
-                # Thread is still running after timeout
-                return "TIMEOUT ERROR: Execution exceeded 300 seconds (5 min). TIP: Resample data to daily/monthly before plotting (e.g., ds.resample(time='D').mean())."
-            
-            # Detect NEW plot files by comparing directory snapshots
-            try:
-                after_files = {
-                    f: os.path.getmtime(os.path.join(PLOTS_DIR, f))
-                    for f in os.listdir(PLOTS_DIR)
-                    if os.path.splitext(f)[1].lower() in image_exts
-                }
-            except FileNotFoundError:
-                after_files = {}
-            
-            new_files = []
-            for fname, mtime in after_files.items():
-                full_path = os.path.join(PLOTS_DIR, fname)
-                if fname not in before_files or mtime > before_files[fname]:
-                    # Only report truly new files (not already displayed this session)
-                    if full_path not in self._displayed_plots:
-                        new_files.append(full_path)
-            
-            if new_files:
-                print(f"📊 {len(new_files)} plot(s) saved")
-                self._capture_and_notify_plots(new_files, code)
-            
-            if result_container["error"]:
-                return result_container["error"]
-            
-            return result_container["output"] or "(No output)"
+        # Detect NEW plot files by comparing directory snapshots
+        try:
+            after_files = {
+                f: os.path.getmtime(os.path.join(PLOTS_DIR, f))
+                for f in os.listdir(PLOTS_DIR)
+                if os.path.splitext(f)[1].lower() in image_exts
+            }
+        except FileNotFoundError:
+            after_files = {}
+
+        new_files = []
+        for fname, mtime in after_files.items():
+            full_path = os.path.join(PLOTS_DIR, fname)
+            if fname not in before_files or mtime > before_files[fname]:
+                if full_path not in self._displayed_plots:
+                    new_files.append(full_path)
+
+        if new_files:
+            print(f"📊 {len(new_files)} plot(s) saved")
+            self._capture_and_notify_plots(new_files, code)
+
+        return output
 
     async def _arun(self, code: str) -> str:
-        """Use the tool asynchronously."""
-        return self._run(code)
+        """Use the tool asynchronously — avoids blocking the event loop."""
+        import asyncio
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._run, code)

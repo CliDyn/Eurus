@@ -129,6 +129,9 @@ def calculate_maritime_route(
     if not HAS_ROUTING_DEPS:
         return "Error: 'scgraph' not installed."
 
+    if not (1 <= month <= 12):
+        return f"Error: month must be 1-12, got {month}."
+
     try:
         path = _get_maritime_path((origin_lat, origin_lon), (dest_lat, dest_lon))
         

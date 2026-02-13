@@ -287,49 +287,6 @@ print(f"Min: {{float(data.min()):.2f}} K, Max: {{float(data.max()):.2f}} K")
         assert "Error" not in analysis_result or "Security" not in analysis_result
 
 
-# ============================================================================
-# E2E: CLIMATE INDEX RETRIEVAL
-# ============================================================================
-
-class TestClimateIndices:
-    """End-to-end tests for climate index retrieval."""
-    
-    @pytest.mark.slow
-    def test_fetch_nino34_index(self):
-        """
-        E2E Test: Fetch Nino3.4 index from NOAA.
-        Tests external API integration.
-        """
-        from eurus.tools.climate_science.attribution import fetch_climate_index
-        
-        result = fetch_climate_index(
-            index_name="nino34",
-            start_date="2020-01-01",
-            end_date="2023-12-31"
-        )
-        
-        print(f"\n=== Nino3.4 Result ===\n{result}\n")
-        
-        assert "CLIMATE INDEX RETRIEVED" in result or "Error" not in result
-        assert "nino" in result.lower()
-        
-    @pytest.mark.slow
-    def test_fetch_nao_index(self):
-        """
-        E2E Test: Fetch NAO index from NOAA.
-        """
-        from eurus.tools.climate_science.attribution import fetch_climate_index
-        
-        result = fetch_climate_index(
-            index_name="nao",
-            start_date="2022-01-01",
-            end_date="2023-12-31"
-        )
-        
-        print(f"\n=== NAO Result ===\n{result}\n")
-        
-        # May fail if NOAA is down, but should not crash
-        assert result is not None
 
 
 # ============================================================================

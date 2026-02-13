@@ -257,6 +257,24 @@ def handle_command(command: str, memory: MemoryManager) -> tuple[bool, str]:
 
 
 # ============================================================================
+# CALLBACK FOR TOOL PROGRESS
+# ============================================================================
+
+from langchain_core.callbacks import BaseCallbackHandler
+
+
+class ToolProgressCallback(BaseCallbackHandler):
+    """Print tool calls in real-time during agent execution."""
+    def on_tool_start(self, serialized, input_str, **kwargs):
+        tool_name = serialized.get('name', kwargs.get('name', 'unknown'))
+        print(f"🔧 Calling: {tool_name}...", flush=True)
+
+    def on_tool_end(self, output, name=None, **kwargs):
+        display_name = name or "tool"
+        print(f"   ✓ {display_name} done", flush=True)
+
+
+# ============================================================================
 # MAIN AGENT LOOP
 # ============================================================================
 
@@ -360,24 +378,11 @@ def main():
                 print("\n" + "─" * 75)
                 
                 # Use invoke() with callback handler for real-time tool progress
-                # (streaming mode="updates" doesn't reliably emit the final text)
-                from langchain.callbacks.base import BaseCallbackHandler
-                
-                class ToolProgressCallback(BaseCallbackHandler):
-                    """Print tool calls in real-time during agent execution."""
-                    def on_tool_start(self, serialized, input_str, **kwargs):
-                        tool_name = serialized.get('name', kwargs.get('name', 'unknown'))
-                        print(f"🔧 Calling: {tool_name}...", flush=True)
-                    
-                    def on_tool_end(self, output, name=None, **kwargs):
-                        display_name = name or "tool"
-                        print(f"   ✓ {display_name} done", flush=True)
-                
                 config = {"recursion_limit": 35, "callbacks": [ToolProgressCallback()]}
                 result = agent.invoke({"messages": messages}, config=config)
                 
-                # Extract final response from the last message (same as web wrapper)
-                messages = result["messages"]
+                # Update messages from result (keep as LangChain messages)
+                messages = list(result["messages"])
                 last_message = messages[-1]
                 
                 if hasattr(last_message, 'content') and last_message.content:

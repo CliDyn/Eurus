@@ -253,8 +253,8 @@ from eofs.xarray import Eof
 ## Spatial Map Visualization
 
 ### Ready-to-Adapt Template
-The REPL has a dark theme pre-set. All plots automatically get dark background,
-white labels, and grid. Just focus on the data.
+The REPL has a light publication theme pre-set (white background, dark labels).
+Just focus on the data — styling is handled automatically.
 
 ```python
 import numpy as np
@@ -325,8 +325,8 @@ except ImportError:
 ## Time Series Visualization
 
 ### Ready-to-Adapt Template
-Dark theme is pre-set. The Eurus color cycle starts with sky-blue (#4fc3f7),
-then coral, green, amber — all vivid on dark backgrounds.
+Dark labels on a white background are pre-set. The Eurus color cycle starts with sky-blue (#4fc3f7),
+then coral, green, amber — all vivid and publication-ready.
 
 ```python
 import matplotlib.dates as mdates

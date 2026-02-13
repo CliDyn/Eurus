@@ -1,0 +1,47 @@
+# ============================================================================
+# Eurus — Docker Compose
+# ============================================================================
+# Usage:
+#   docker compose run --rm agent     # interactive CLI
+#   docker compose up web             # web UI on http://localhost:8000
+#   docker compose up web -d          # web UI (detached)
+# ============================================================================
+
+services:
+  # ── Interactive CLI agent ──────────────────────────────────────────────
+  agent:
+    build:
+      context: .
+      target: agent
+    image: eurus-agent
+    env_file: .env
+    environment:
+      - EURUS_DOCKER=1
+    volumes:
+      - eurus-data:/app/data        # persist downloaded datasets
+      - eurus-memory:/app/.memory   # persist memory between runs
+      - eurus-plots:/app/data/plots # persist generated plots
+    stdin_open: true                 # -i (interactive)
+    tty: true                        # -t (terminal)
+
+  # ── Web interface (FastAPI + WebSocket) ────────────────────────────────
+  web:
+    build:
+      context: .
+      target: web
+    image: eurus-web
+    env_file: .env
+    environment:
+      - EURUS_DOCKER=1
+    ports:
+      - "8000:8000"
+    volumes:
+      - eurus-data:/app/data
+      - eurus-memory:/app/.memory
+      - eurus-plots:/app/data/plots
+    restart: unless-stopped
+
+volumes:
+  eurus-data:
+  eurus-memory:
+  eurus-plots:
