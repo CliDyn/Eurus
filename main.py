@@ -357,92 +357,39 @@ def main():
             print("\nThinking...\n")
 
             try:
-                # Stream the response for real-time output
                 print("\n" + "─" * 75)
                 
-                full_response = ""
-                tool_executed = False
-                last_agent_message = None  # Track the last message from the agent node
+                # Use invoke() with callback handler for real-time tool progress
+                # (streaming mode="updates" doesn't reliably emit the final text)
+                from langchain.callbacks.base import BaseCallbackHandler
                 
-                # Limit recursion to prevent infinite loops (~15 tool calls max)
-                config = {"recursion_limit": 35}
-                for event in agent.stream({"messages": messages}, stream_mode="updates", config=config):
-                    # Handle different event types
-                    for node_name, node_output in event.items():
-                        if node_name == "agent":
-                            # LLM is producing output
-                            if "messages" in node_output:
-                                for msg in node_output["messages"]:
-                                    last_agent_message = msg  # Always track latest
-                                    
-                                    # Check for tool calls (only if list is non-empty)
-                                    has_tool_calls = hasattr(msg, 'tool_calls') and msg.tool_calls
-                                    
-                                    if has_tool_calls:
-                                        for tc in msg.tool_calls:
-                                            tool_name = tc.get('name', 'unknown')
-                                            print(f"🔧 Calling: {tool_name}...", flush=True)
-                                            tool_executed = True
-                                    
-                                    # Check for content — extract text from any format
-                                    content = getattr(msg, 'content', None)
-                                    if content:
-                                        # Handle content that might be a list of blocks
-                                        if isinstance(content, list):
-                                            text_parts = [
-                                                block.get('text', '') if isinstance(block, dict) else str(block)
-                                                for block in content
-                                            ]
-                                            text = ''.join(text_parts)
-                                        else:
-                                            text = str(content)
-                                        
-                                        if text.strip():
-                                            if not tool_executed:
-                                                print("Eurus: ", end="", flush=True)
-                                            else:
-                                                print("\n\n📝 Response:", flush=True)
-                                            print(text, flush=True)
-                                            full_response = text
-                        
-                        elif node_name == "tools":
-                            # Tool execution completed
-                            if "messages" in node_output:
-                                for msg in node_output["messages"]:
-                                    if hasattr(msg, 'name'):
-                                        print(f"   ✓ {msg.name} done", flush=True)
+                class ToolProgressCallback(BaseCallbackHandler):
+                    """Print tool calls in real-time during agent execution."""
+                    def on_tool_start(self, serialized, input_str, **kwargs):
+                        tool_name = serialized.get('name', kwargs.get('name', 'unknown'))
+                        print(f"🔧 Calling: {tool_name}...", flush=True)
+                    
+                    def on_tool_end(self, output, name=None, **kwargs):
+                        display_name = name or "tool"
+                        print(f"   ✓ {display_name} done", flush=True)
                 
-                print("─" * 75 + "\n")
+                config = {"recursion_limit": 35, "callbacks": [ToolProgressCallback()]}
+                result = agent.invoke({"messages": messages}, config=config)
                 
-                # If streaming didn't capture content, extract from last agent message
-                if not full_response and last_agent_message is not None:
-                    content = getattr(last_agent_message, 'content', None)
-                    if content:
-                        if isinstance(content, list):
-                            text_parts = [
-                                block.get('text', '') if isinstance(block, dict) else str(block)
-                                for block in content
-                            ]
-                            full_response = ''.join(text_parts)
-                        else:
-                            full_response = str(content)
-                        
-                        if full_response.strip():
-                            print(f"\n📝 Response:\n{full_response}")
-                            print("─" * 75 + "\n")
+                # Extract final response from the last message (same as web wrapper)
+                messages = result["messages"]
+                last_message = messages[-1]
                 
-                # Update messages for the next turn
-                if full_response:
-                    messages.append({"role": "assistant", "content": full_response})
-                    memory.add_message("assistant", full_response)
+                if hasattr(last_message, 'content') and last_message.content:
+                    response_text = last_message.content
+                elif isinstance(last_message, dict) and last_message.get('content'):
+                    response_text = last_message['content']
                 else:
-                    # Truly no content — agent only used tools with no summary
-                    logger.warning("Agent produced no text response after streaming")
-                    fallback_text = "Analysis complete. Let me know if you need anything else!"
-                    messages.append({"role": "assistant", "content": fallback_text})
-                    memory.add_message("assistant", fallback_text)
-                    print(f"Eurus: {fallback_text}")
-                    print("─" * 75 + "\n")
+                    response_text = str(last_message)
+                
+                print(f"\n📝 Eurus:\n{response_text}", flush=True)
+                print("─" * 75 + "\n")
+                memory.add_message("assistant", response_text)
 
             except KeyboardInterrupt:
                 print("\n\nInterrupted. Type /quit to exit or continue with a new question.")
