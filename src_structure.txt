@@ -1,0 +1,4611 @@
+eurus/tools/__init__.py
+code
+"""
+Eurus Tools Registry
+=====================
+Central hub for all agent tools.
+
+Tools:
+- Data Retrieval: ERA5 data access
+- Analysis: Python REPL for custom analysis  
+- Guides: Methodology and visualization guidance
+- Routing: Maritime navigation (optional)
+"""
+
+from typing import List
+from langchain_core.tools import BaseTool
+
+# Import core tools
+from .era5 import era5_tool
+from .repl import PythonREPLTool
+from .routing import routing_tool
+from .analysis_guide import analysis_guide_tool, visualization_guide_tool
+
+# Optional dependency check for routing
+try:
+    import scgraph
+    HAS_ROUTING_DEPS = True
+except ImportError:
+    HAS_ROUTING_DEPS = False
+
+
+def get_all_tools(
+    enable_routing: bool = True,
+    enable_guide: bool = True
+) -> List[BaseTool]:
+    """
+    Return a list of all available tools for the agent.
+
+    Args:
+        enable_routing: If True, includes the maritime routing tool (default: True).
+        enable_guide: If True, includes the guide tools (default: True).
+
+    Returns:
+        List of LangChain tools for the agent.
+    """
+    # Core tools: data retrieval + Python analysis
+    tools = [
+        era5_tool,
+        PythonREPLTool(working_dir=".")
+    ]
+
+    # Guide tools: methodology and visualization guidance
+    if enable_guide:
+        tools.append(analysis_guide_tool)
+        tools.append(visualization_guide_tool)
+
+    # Routing tools: maritime navigation
+    if enable_routing:
+        if HAS_ROUTING_DEPS:
+            tools.append(routing_tool)
+        else:
+            print("WARNING: Routing tools requested but dependencies (scgraph) are missing.")
+
+    return tools
+
+
+# Alias for backward compatibility
+get_tools = get_all_tools
+--------------------------------------------------------------------------------
+eurus/tools/analysis_guide.py
+code
+"""
+Analysis Guide Tool
+====================
+Provides methodological guidance for climate data analysis using python_repl.
+
+This tool returns TEXT INSTRUCTIONS (not executable code!) for:
+- What approach to take
+- How to structure the analysis
+- Quality checks and pitfalls
+- Best practices for visualization
+
+The agent uses python_repl to execute the actual analysis.
+"""
+
+from typing import Literal
+from pydantic import BaseModel, Field
+from langchain_core.tools import StructuredTool
+
+
+# =============================================================================
+# ANALYSIS GUIDES
+# =============================================================================
+
+ANALYSIS_GUIDES = {
+    # -------------------------------------------------------------------------
+    # DATA OPERATIONS
+    # -------------------------------------------------------------------------
+    "load_data": """
+## Loading ERA5 Data
+
+### When to use
+- Initializing any analysis
+- Loading downloaded Zarr data
+
+### Workflow
+1. **Load data** — Use `xr.open_dataset('path', engine='zarr')` or `xr.open_zarr('path')`.
+2. **Inspect dataset** — Check coordinates and available variables.
+3. **Convert units** before any analysis:
+   - Temp (`t2`, `d2`, `skt`, `sst`, `stl1`): subtract 273.15 → °C
+   - Precip (`tp`, `cp`, `lsp`): multiply by 1000 → mm
+   - Pressure (`sp`, `mslp`): divide by 100 → hPa
+
+### Quality Checklist
+- [ ] Data loaded lazily (avoid `.load()` on large datasets)
+- [ ] Units converted before aggregations
+- [ ] Coordinate names verified (latitude vs lat, etc.)
+
+### Common Pitfalls
+- ⚠️ Loading multi-year global data into memory causes OOM. Keep operations lazy until subsetted.
+- ⚠️ Some Zarr stores have `valid_time` instead of `time` — check with `.coords`.
+""",
+
+    "spatial_subset": """
+## Spatial Subsetting
+
+### When to use
+- Focusing on a specific region, country, or routing bounding box
+- Reducing data size before heavy analysis
+
+### Workflow
+1. **Determine bounds** — Find min/max latitude and longitude.
+2. **Check coordinate orientation** — ERA5 latitude is often descending (90 to -90).
+3. **Slice data** — `.sel(latitude=slice(north, south), longitude=slice(west, east))`.
+
+### Quality Checklist
+- [ ] Latitude sliced from North to South (max to min) for descending coords
+- [ ] Longitudes match dataset format (convert -180/180 ↔ 0/360 if needed)
+- [ ] Result is not empty — verify with `.shape`
+
+### Common Pitfalls
+- ⚠️ Slicing `slice(south, north)` on descending coords → empty result.
+- ⚠️ Crossing the prime meridian in 0-360 coords requires concatenating two slices.
+- ⚠️ Use `.sel(method='nearest')` for point extraction, not exact matching.
+""",
+
+    "temporal_subset": """
+## Temporal Subsetting & Aggregation
+
+### When to use
+- Isolating specific events, months, or seasons
+- Downsampling hourly data to daily/monthly
+
+### Workflow
+1. **Time slice** — `.sel(time=slice('2023-01-01', '2023-12-31'))`.
+2. **Filter** — Seasons: `.sel(time=ds.time.dt.season == 'DJF')`.
+3. **Resample** — `.resample(time='1D').mean()` for daily means.
+
+### Quality Checklist
+- [ ] Aggregation matches variable: `.mean()` for T/wind, `.sum()` for precip
+- [ ] Leap years handled if using day-of-year grouping
+
+### Common Pitfalls
+- ⚠️ DJF wraps across years — verify start/end boundaries.
+- ⚠️ `.resample()` (continuous) ≠ `.groupby()` (climatological). Don't mix them up.
+- ⚠️ Radiation variables (`ssr`, `ssrd`) are accumulated — need differencing, not averaging.
+""",
+
+    # -------------------------------------------------------------------------
+    # STATISTICAL ANALYSIS
+    # -------------------------------------------------------------------------
+    "anomalies": """
+## Anomaly Analysis
+
+### When to use
+- "How unusual was this period?"
+- Comparing current conditions to "normal"
+- Any "above/below average" question
+
+### Workflow
+1. **Define baseline** — ≥10 years (30 ideal). E.g. 1991-2020.
+2. **Compute climatology** — `clim = ds.groupby('time.month').mean('time')`.
+3. **Subtract** — `anomaly = ds.groupby('time.month') - clim`.
+4. **Convert units** — Report in °C, mm, m/s (not K, m, Pa).
+5. **Assess magnitude** — Compare to σ of the baseline period.
+
+### Quality Checklist
+- [ ] Baseline ≥10 years
+- [ ] Same calendar grouping for clim and analysis
+- [ ] Units converted for readability
+- [ ] Spatial context: is anomaly regional or localized?
+
+### Common Pitfalls
+- ⚠️ Short baselines amplify noise.
+- ⚠️ Daily climatologies with <30yr baseline are noisy → use monthly grouping.
+- ⚠️ Be explicit: spatial anomaly vs temporal anomaly.
+
+### Interpretation
+- Positive = warmer/wetter/windier than normal.
+- ±1σ = common, ±2σ = unusual (5%), ±3σ = extreme (0.3%).
+- Maps: MUST use `RdBu_r` centered at zero via `TwoSlopeNorm`.
+""",
+
+    "zscore": """
+## Z-Score Analysis (Standardized Anomalies)
+
+### When to use
+- Comparing extremity across different variables
+- Standardizing for regions with different variability
+- Identifying statistically significant departures
+
+### Workflow
+1. **Compute baseline mean** — Grouped by month for seasonality.
+2. **Compute baseline std** — Same period, same grouping.
+3. **Standardize** — `z = (value - mean) / std`.
+
+### Quality Checklist
+- [ ] Standard deviation is non-zero everywhere
+- [ ] Baseline period matches for mean and std
+
+### Common Pitfalls
+- ⚠️ Precipitation is NOT normally distributed — use SPI or percentiles instead of raw Z-scores.
+- ⚠️ Z-scores near coastlines can be extreme due to mixed land/ocean std.
+
+### Interpretation
+- Z = 0: average. ±1: normal (68%). ±2: unusual (5%). ±3: extreme (0.3%).
+""",
+
+    "trend_analysis": """
+## Linear Trend Analysis
+
+### When to use
+- "Is it getting warmer/wetter over time?"
+- Detecting long-term climate change signals
+
+### Workflow
+1. **Downsample** — Convert to annual/seasonal means first.
+2. **Regress** — `scipy.stats.linregress` or `np.polyfit(degree=1)`.
+3. **Significance** — Extract p-value for the slope.
+4. **Scale** — Multiply annual slope by 10 → "per decade".
+
+### Quality Checklist
+- [ ] Period ≥20-30 years for meaningful trends
+- [ ] Seasonal cycle removed before fitting
+- [ ] Significance tested (p < 0.05)
+- [ ] Report trend as units/decade
+
+### Common Pitfalls
+- ⚠️ Trend on daily data without removing seasonality → dominated by summer/winter swings.
+- ⚠️ Short series have uncertain trends — report confidence intervals.
+- ⚠️ Autocorrelation can inflate significance — consider using Mann-Kendall test.
+
+### Interpretation
+- Report as °C/decade. Use stippling on maps for significant areas.
+""",
+
+    "eof_analysis": """
+## EOF/PCA Analysis
+
+### When to use
+- Finding dominant spatial patterns (ENSO, NAO, PDO)
+- Dimensionality reduction of spatiotemporal data
+
+### Workflow
+1. **Deseasonalize** — Compute anomalies to remove the seasonal cycle.
+2. **Latitude weighting** — Multiply by `np.sqrt(np.cos(np.deg2rad(lat)))`.
+3. **Decompose** — PCA on flattened space dimensions.
+4. **Reconstruct** — Map PCs back to spatial grid (EOFs).
+
+### Quality Checklist
+- [ ] Seasonal cycle removed
+- [ ] Latitude weighting applied
+- [ ] Variance explained (%) calculated per mode
+- [ ] Physical interpretation attempted for leading modes
+
+### Common Pitfalls
+- ⚠️ Unweighted EOFs inflate polar regions artificially.
+- ⚠️ EOFs are mathematical constructs — not guaranteed to correspond to physical modes.
+
+### Interpretation
+- EOF1: dominant spatial pattern. PC1: its temporal evolution.
+- If EOF1 explains >20% variance, it's highly dominant.
+""",
+
+    "correlation_analysis": """
+## Correlation Analysis
+
+### When to use
+- Spatial/temporal correlation mapping
+- Lead-lag analysis (e.g., SST vs downstream precipitation)
+- Teleconnection exploration
+
+### Workflow
+1. **Deseasonalize both variables** — Remove seasonal cycle from both.
+2. **Align time coordinates** — Ensure identical time axes.
+3. **Correlate** — `xr.corr(var1, var2, dim='time')`.
+4. **Lead-lag** — Use `.shift(time=N)` month offsets to test delayed responses.
+5. **Significance** — Compute p-values, mask insignificant areas.
+
+### Quality Checklist
+- [ ] Both variables deseasonalized
+- [ ] p-values computed (p < 0.05 for significance)
+- [ ] Sample size adequate (≥30 time points)
+
+### Common Pitfalls
+- ⚠️ Correlating raw data captures the seasonal cycle — everything correlates with summer.
+- ⚠️ Spatial autocorrelation inflates field significance — apply Bonferroni or FDR correction.
+
+### Interpretation
+- R² gives variance explained. Lead-lag peak indicates response time.
+- Plot spatial R maps with `RdBu_r`, stipple significant areas.
+""",
+
+    "composite_analysis": """
+## Composite Analysis
+
+### When to use
+- Average conditions during El Niño vs La Niña years
+- Spatial fingerprint of specific extreme events
+- "What does the atmosphere look like when X happens?"
+
+### Workflow
+1. **Define events** — Boolean mask of times exceeding a threshold (e.g., Niño3.4 > 0.5°C).
+2. **Subset data** — `.where(mask, drop=True)`.
+3. **Average** — Time mean of the subset = composite.
+4. **Compare** — Subtract climatological mean → composite anomaly.
+
+### Quality Checklist
+- [ ] Sample size ≥10 events for robustness
+- [ ] Baseline climatology matches the season of the events
+- [ ] Significance tested via bootstrap or t-test
+
+### Common Pitfalls
+- ⚠️ Compositing n=2 events → noise, not a physical signal.
+- ⚠️ Mixing seasons in composite (El Niño in DJF vs JJA) obscures the signal.
+
+### Interpretation
+- Shows the typical anomaly expected when event occurs.
+- Plot with `RdBu_r` diverging colormap. Stipple significant areas.
+""",
+
+    "diurnal_cycle": """
+## Diurnal Cycle Analysis
+
+### When to use
+- Hourly variability within days (afternoon convection, nighttime cooling)
+- Solar radiation patterns
+
+### Workflow
+1. **Group by hour** — `ds.groupby('time.hour').mean('time')`.
+2. **Convert to local time** — ERA5 is UTC. `Local = UTC + Longitude/15`.
+3. **Calculate amplitude** — `diurnal_range = max('hour') - min('hour')`.
+
+### Quality Checklist
+- [ ] Input data is hourly (not daily/monthly)
+- [ ] UTC → local time conversion applied before labeling "afternoon"/"morning"
+
+### Common Pitfalls
+- ⚠️ Averaging global data by UTC hour mixes day and night across longitudes.
+- ⚠️ Cloud cover (`tcc`) and radiation (`ssrd`) have strong diurnal signals — always check.
+
+### Interpretation
+- `blh` and `t2` peak mid-afternoon. Convective precip (`cp`) peaks late afternoon over land, early morning over oceans.
+""",
+
+    "seasonal_decomposition": """
+## Seasonal Decomposition
+
+### When to use
+- Separating the seasonal cycle from interannual variability
+- Visualizing how a specific year deviates from the normal curve
+
+### Workflow
+1. **Compute climatology** — `.groupby('time.month').mean('time')`.
+2. **Extract anomalies** — Subtract climatology from raw data.
+3. **Smooth trend** — Apply 12-month rolling mean to extract multi-year trends.
+
+### Quality Checklist
+- [ ] Baseline robust (≥10 years)
+- [ ] Residual = raw - seasonal - trend (should be ~white noise)
+
+### Common Pitfalls
+- ⚠️ Day-of-year climatologies over short baselines are noisy — smooth with 15-day window.
+
+### Interpretation
+- Separates variance into: seasonal (predictable), trend (long-term), residual (weather noise).
+""",
+
+    "spectral_analysis": """
+## Spectral Analysis
+
+### When to use
+- Periodicity detection (ENSO 3-7yr, MJO 30-60d, annual/semi-annual)
+- Confirming suspected oscillatory behavior
+
+### Workflow
+1. **Prepare 1D series** — Spatial average or single point.
+2. **Detrend** — Remove linear trend AND seasonal cycle.
+3. **Compute spectrum** — `scipy.signal.welch` or `periodogram`.
+4. **Plot as Period** — X-axis = 1/frequency (years or days), not raw frequency.
+
+### Quality Checklist
+- [ ] No NaNs in time series (interpolate or drop)
+- [ ] Time coordinate evenly spaced
+- [ ] Seasonal cycle removed
+
+### Common Pitfalls
+- ⚠️ Seasonal cycle dominates spectrum if not removed — drowns everything else.
+- ⚠️ Short records can't resolve low-frequency oscillations (need ≥3× the period).
+
+### Interpretation
+- Peaks = dominant cycles. ENSO: 3-7yr. QBO: ~28mo. MJO: 30-60d. Annual: 12mo.
+""",
+
+    "spatial_statistics": """
+## Spatial Statistics & Area Averaging
+
+### When to use
+- Computing a single time series for a geographic region
+- Area-weighted means for reporting
+- Field significance testing
+
+### Workflow
+1. **Latitude weights** — `weights = np.cos(np.deg2rad(ds.latitude))`.
+2. **Apply** — `ds.weighted(weights).mean(dim=['latitude', 'longitude'])`.
+3. **Land/sea mask** — Apply if needed (e.g., ocean-only SST average).
+
+### Quality Checklist
+- [ ] Latitude weighting applied BEFORE spatial averaging
+- [ ] Land-sea mask applied where relevant
+- [ ] Units preserved correctly
+
+### Common Pitfalls
+- ⚠️ Unweighted averages bias toward poles (smaller grid cells over-counted).
+- ⚠️ Global mean SST must exclude land points.
+
+### Interpretation
+- Produces physically accurate area-averaged time series.
+""",
+
+    "multi_variable": """
+## Multi-Variable Derived Quantities
+
+### When to use
+- Combining ERA5 variables for derived metrics
+
+### Common Derivations
+1. **Wind speed** — `wspd = np.sqrt(u10**2 + v10**2)` (or u100/v100 for hub-height).
+2. **Wind direction** — `wdir = (270 - np.degrees(np.arctan2(v10, u10))) % 360`.
+3. **Relative humidity** — From `t2` and `d2` using Magnus formula.
+4. **Heat index** — Combine `t2` and `d2` (Steadman formula).
+5. **Vapour transport** — `IVT ≈ tcwv * wspd` (surface proxy).
+6. **Total precip check** — `tp ≈ cp + lsp`.
+
+### Quality Checklist
+- [ ] Variables share identical grids (time, lat, lon)
+- [ ] Units matched before combining (both in °C, both in m/s, etc.)
+
+### Common Pitfalls
+- ⚠️ `mean(speed) ≠ speed_of_means` — always compute speed FIRST, then average.
+- ⚠️ Wind direction requires proper 4-quadrant atan2, not naive arctan.
+
+### Interpretation
+- Derived metrics often better represent human/environmental impact than raw fields.
+""",
+
+    "climatology_normals": """
+## Climatology Normals (WMO Standard)
+
+### When to use
+- Computing 30-year normals
+- Calculating "departure from normal"
+
+### Workflow
+1. **Select base period** — Standard WMO epoch: 1991-2020 (or 1981-2010).
+2. **Compute monthly averages** — `normals = baseline.groupby('time.month').mean('time')`.
+3. **Departure** — `departure = current.groupby('time.month') - normals`.
+
+### Quality Checklist
+- [ ] Exactly 30 years used
+- [ ] Same months compared (don't mix Feb normals with March data)
+
+### Common Pitfalls
+- ⚠️ Moving baselines make comparisons with WMO climate reports inconsistent.
+
+### Interpretation
+- "Normal" = statistical baseline. Departures express how much current conditions deviate.
+""",
+
+    # -------------------------------------------------------------------------
+    # CLIMATE INDICES & EXTREMES
+    # -------------------------------------------------------------------------
+    "climate_indices": """
+## Climate Indices
+
+### When to use
+- Assessing ENSO, NAO, PDO, AMO teleconnections
+- Correlating local weather with large-scale modes
+
+### Key Indices
+- **ENSO (Niño 3.4)**: `sst` anomaly, 5°S-5°N, 170°W-120°W. El Niño > +0.5°C, La Niña < -0.5°C.
+- **NAO**: `mslp` difference, Azores High minus Icelandic Low. Positive → mild European winters.
+- **PDO**: Leading EOF of North Pacific `sst` (north of 20°N). 20-30yr phases.
+- **AMO**: Detrended North Atlantic `sst` average. ~60-70yr cycle.
+
+### Workflow
+1. **Extract region** — Use standard geographic bounds.
+2. **Compute anomaly** — Area-averaged, against 30yr baseline.
+3. **Smooth** — 3-to-5 month rolling mean.
+
+### Quality Checklist
+- [ ] Standard geographic bounds strictly followed
+- [ ] Rolling mean applied to filter weather noise
+- [ ] Latitude-weighted area average
+
+### Common Pitfalls
+- ⚠️ Without rolling mean, the index is too noisy for classification.
+- ⚠️ Using incorrect region bounds produces a different (invalid) index.
+""",
+
+    "extremes": """
+## Extreme Event Analysis
+
+### When to use
+- Heat/cold extremes, heavy precipitation, tail-risk assessment
+- Threshold exceedance frequency
+
+### Workflow
+1. **Define threshold** — Absolute (e.g., T > 35°C) or percentile-based (> 95th pctl of baseline).
+2. **Create mask** — Boolean where condition is met.
+3. **Count** — Sum over time for extreme days per year/month.
+4. **Trend** — Check if frequency is increasing over time.
+
+### Quality Checklist
+- [ ] Percentiles from robust baseline (≥30 years)
+- [ ] Use daily data, not monthly averages
+- [ ] Units converted before applying thresholds
+
+### Common Pitfalls
+- ⚠️ 99th percentile on monthly averages misses true daily extremes entirely.
+- ⚠️ Absolute thresholds (e.g., 35°C) are region-dependent — 35°C is normal in Sahara, extreme in London.
+
+### Interpretation
+- Increasing frequency of extremes = non-linear climate change impact.
+- Report as "N days/year exceeding threshold" or "return period shortened from X to Y years".
+""",
+
+    "drought_analysis": """
+## Drought Analysis
+
+### When to use
+- Prolonged precipitation deficits
+- Agricultural/hydrological impact assessment
+- SPI (Standardized Precipitation Index) proxy
+
+### Workflow
+1. **Extract precip** — Use `tp` in mm (×1000 from meters).
+2. **Accumulate** — Rolling sums: `tp.rolling(time=3).sum()` for 3-month SPI.
+3. **Standardize** — `(accumulated - mean) / std` → SPI proxy.
+4. **Cross-check** — Verify with `swvl1` (soil moisture) for ground-truth.
+
+### Quality Checklist
+- [ ] Monthly data used (not hourly)
+- [ ] Baseline ≥30 years for stable statistics
+- [ ] Multiple accumulation periods tested (1, 3, 6, 12 months)
+
+### Common Pitfalls
+- ⚠️ Absolute precipitation deficits are meaningless in deserts — always standardize.
+- ⚠️ Gamma distribution fit (proper SPI) is better than raw Z-score for precip.
+
+### Interpretation
+- SPI < -1.0: Moderate drought. < -1.5: Severe. < -2.0: Extreme.
+""",
+
+    "heatwave_detection": """
+## Heatwave Detection
+
+### When to use
+- Identifying heatwave events using standard definitions
+- Assessing heat-related risk periods
+
+### Workflow
+1. **Daily data** — Must be daily resolution (resample hourly if needed).
+2. **Threshold** — 90th percentile of `t2` per calendar day from baseline.
+3. **Exceedance mask** — `is_hot = t2_daily > threshold_90`.
+4. **Streak detection** — Find ≥3 consecutive hot days using rolling sum ≥ 3.
+
+### Quality Checklist
+- [ ] Daily data (not monthly!)
+- [ ] `t2` converted to °C
+- [ ] Threshold is per-calendar-day (not a single annual value)
+- [ ] Duration criterion applied (≥3 days)
+
+### Common Pitfalls
+- ⚠️ Monthly data — physically impossible to detect heatwaves.
+- ⚠️ A single hot day is not a heatwave — duration matters.
+- ⚠️ Nighttime temperatures (`t2` at 00/06 UTC) also matter for health impact.
+
+### Interpretation
+- Heatwaves require BOTH intensity (high T) AND duration (consecutive days).
+- Report: number of events per year, mean duration, max intensity.
+""",
+
+    "atmospheric_rivers": """
+## Atmospheric Rivers Detection
+
+### When to use
+- Detecting AR events from integrated vapour transport proxy
+- Extreme precipitation risk at landfall
+
+### Workflow
+1. **Extract** — `tcwv` + `u10`, `v10`.
+2. **Compute IVT proxy** — `ivt = tcwv * np.sqrt(u10**2 + v10**2)`.
+3. **Threshold** — IVT proxy > 250 kg/m/s (approximate).
+4. **Shape check** — Feature should be elongated (>2000km long, <1000km wide).
+
+### Quality Checklist
+- [ ] Acknowledge this is surface-wind proxy (true IVT needs pressure-level data)
+- [ ] Cross-validate with heavy `tp` at landfall
+- [ ] Check for persistent (≥24h) plume features
+
+### Common Pitfalls
+- ⚠️ Tropical moisture pools are NOT ARs — wind-speed multiplier is essential to distinguish.
+- ⚠️ This surface proxy underestimates true IVT — use conservative thresholds.
+
+### Interpretation
+- High `tcwv` + strong directed wind at coast = extreme flood risk.
+- Map with `YlGnBu` for moisture intensity.
+""",
+
+    "blocking_events": """
+## Atmospheric Blocking Detection
+
+### When to use
+- Identifying persistent high-pressure blocks from MSLP
+- Explaining prolonged heatwaves, droughts, or cold spells
+
+### Workflow
+1. **Extract** — `mslp` in hPa (÷100 from Pa).
+2. **Compute anomalies** — Daily anomalies from climatology.
+3. **Detect** — Find positive anomalies > 1.5σ persisting ≥5 days.
+4. **Location** — Focus on mid-to-high latitudes (40-70°N typically).
+
+### Quality Checklist
+- [ ] 3-5 day rolling mean applied to filter transient ridges
+- [ ] Persistence criterion enforced (≥5 days)
+- [ ] Mid-latitude focus
+
+### Common Pitfalls
+- ⚠️ Fast-moving ridges are NOT blocks — persistence is key.
+- ⚠️ Blocks in the Southern Hemisphere are rarer and weaker.
+
+### Interpretation
+- Blocks force storms to detour, causing prolonged rain on flanks and drought/heat underneath.
+""",
+
+    "energy_budget": """
+## Surface Energy Budget
+
+### When to use
+- Analyzing radiation balance and surface heating
+- Solar energy potential assessment
+
+### Workflow
+1. **Extract radiation** — `ssrd` (incoming solar), `ssr` (net solar after reflection).
+2. **Convert units** — J/m² to W/m² by dividing by accumulation period (3600s for hourly).
+3. **Compute albedo proxy** — `albedo ≈ 1 - (ssr / ssrd)` where ssrd > 0.
+4. **Seasonal patterns** — Group by month to see radiation cycle.
+
+### Quality Checklist
+- [ ] Accumulation period properly accounted for (hourly vs daily sums)
+- [ ] Division by zero protected (nighttime ssrd = 0)
+- [ ] Units clearly stated: W/m² or MJ/m²/day
+
+### Common Pitfalls
+- ⚠️ ERA5 radiation is ACCUMULATED over the forecast step — must difference consecutive steps for instantaneous values.
+- ⚠️ `ssr` already accounts for clouds and albedo — don't double-correct.
+
+### Interpretation
+- Higher `ssrd` - High solar potential. Low `ssr/ssrd` ratio → high cloudiness or reflective surface (snow/ice).
+""",
+
+    "wind_energy": """
+## Wind Energy Assessment
+
+### When to use
+- Wind power density analysis
+- Turbine hub-height wind resource mapping
+
+### Workflow
+1. **Use hub-height winds** — `u100`, `v100` (100m, not 10m surface winds).
+2. **Compute speed** — `wspd100 = np.sqrt(u100**2 + v100**2)`.
+3. **Power density** — `P = 0.5 * rho * wspd100**3` where rho ≈ 1.225 kg/m³.
+4. **Capacity factor** — Fraction of time wind exceeds cut-in speed (~3 m/s) and stays below cut-out (~25 m/s).
+5. **Weibull fit** — Fit shape (k) and scale (A) parameters to the wind speed distribution.
+
+### Quality Checklist
+- [ ] Using 100m winds, NOT 10m (turbines don't operate at surface)
+- [ ] Power density in W/m²
+- [ ] Seasonal variation checked (winter vs summer)
+
+### Common Pitfalls
+- ⚠️ Using 10m winds severely underestimates wind energy potential.
+- ⚠️ Mean wind speed misleads — power depends on speed CUBED, so variability matters enormously.
+
+### Interpretation
+- Power density >400 W/m² = excellent wind resource.
+- Report Weibull k parameter: k < 2 = gusty/variable, k > 3 = steady flow.
+""",
+
+    "moisture_budget": """
+## Moisture Budget Analysis
+
+### When to use
+- Understanding precipitation sources
+- Tracking moisture plumes and convergence zones
+
+### Workflow
+1. **Extract** — `tcwv` (precipitable water), `tcw` (total column water incl. liquid/ice).
+2. **Temporal evolution** — Track `tcwv` changes to infer moisture convergence.
+3. **Relate to precip** — Compare `tcwv` peaks with `tp` to see conversion efficiency.
+4. **Spatial patterns** — Map `tcwv` to identify moisture corridors.
+
+### Quality Checklist
+- [ ] Distinguish `tcwv` (vapour only) from `tcw` (vapour + liquid + ice)
+- [ ] Units: kg/m² (equivalent to mm of water)
+
+### Common Pitfalls
+- ⚠️ High `tcwv` doesn't guarantee rain — need a lifting mechanism.
+- ⚠️ `tcw - tcwv` gives cloud water + ice content (proxy for cloud thickness).
+
+### Interpretation
+- `tcwv` > 50 kg/m² in tropics = moisture-laden atmosphere primed for heavy precip.
+""",
+
+    "convective_potential": """
+## Convective Potential (Thunderstorm Risk)
+
+### When to use
+- Thunderstorm forecasting and climatology
+- Severe weather risk assessment
+
+### Workflow
+1. **Extract CAPE** — Already available as `cape` variable (J/kg).
+2. **Classify risk** — Low (<300), Moderate (300-1000), High (1000-2500), Extreme (>2500 J/kg).
+3. **Combine with moisture** — High CAPE + high `tcwv` → heavy convective storms.
+4. **Check trigger** — Fronts, orography, or strong daytime heating (`t2` diurnal cycle).
+
+### Quality Checklist
+- [ ] CAPE alone is insufficient — need a trigger mechanism
+- [ ] Check `blh` (boundary layer height) — deep BLH aids convective initiation
+
+### Common Pitfalls
+- ⚠️ CAPE = potential energy, not a guarantee. High CAPE + strong capping inversion = no storms.
+- ⚠️ CAPE is most meaningful in afternoon hours — avoid pre-dawn values.
+
+### Interpretation
+- CAPE > 1000 J/kg with deep BLH (>2km) and high `tcwv` = significant thunderstorm risk.
+""",
+
+    "snow_cover": """
+## Snow Cover & Melt Analysis
+
+### When to use
+- Tracking snow accumulation and melt timing
+- Climate change impacts on snowpack
+
+### Workflow
+1. **Extract** — `sd` (Snow Depth in m water equivalent).
+2. **Seasonal cycle** — Track start/end of snow season per grid point.
+3. **Melt timing** — Find the date when `sd` drops below threshold.
+4. **Trend** — Check if snow season is shortening over decades.
+5. **Compare with `stl1`/`t2`** — Warming soil accelerates melt.
+
+### Quality Checklist
+- [ ] Units: meters of water equivalent
+- [ ] Focus on mid/high latitudes and mountain regions
+- [ ] Inter-annual variability large — use multi-year analysis
+
+### Common Pitfalls
+- ⚠️ ERA5 snow depth is modeled, not observed — cross-reference with station data.
+- ⚠️ Rain-on-snow events can cause rapid melt not captured well in reanalysis.
+
+### Interpretation
+- Earlier melt = less summer water supply. Map with `Blues`, reversed for snowless areas.
+""",
+
+    # -------------------------------------------------------------------------
+    # VISUALIZATION
+    # -------------------------------------------------------------------------
+    "visualization_spatial": """
+## Spatial Map Visualization
+
+### When to use
+- Mapping absolute climate fields (Temp, Wind, Precip, Pressure)
+
+### Workflow
+1. **Figure** — `fig, ax = plt.subplots(figsize=(12, 8))`.
+2. **Meshgrid** — `lons, lats = np.meshgrid(data.longitude, data.latitude)`.
+3. **Plot** — `ax.pcolormesh(lons, lats, data, cmap=..., shading='auto')`.
+4. **Colorbar** — ALWAYS: `plt.colorbar(mesh, ax=ax, label='Units', shrink=0.8)`.
+5. **Cartopy** — Optional: add coastlines, land fill. Graceful fallback if not installed.
+
+### Quality Checklist
+- [ ] Figure 12×8 for maps
+- [ ] Colormap matches variable:
+  - Temp: `RdYlBu_r` | Wind: `YlOrRd` | Precip: `YlGnBu`
+  - Pressure: `viridis` | Cloud: `Greys` | Anomalies: `RdBu_r`
+- [ ] NEVER use `jet`
+- [ ] Colorbar has label with units
+
+### Common Pitfalls
+- ⚠️ Diverging cmap on absolute data is misleading — diverging only for anomalies.
+- ⚠️ Missing `shading='auto'` triggers deprecation warning.
+""",
+
+    "visualization_timeseries": """
+## Time Series Visualization
+
+### When to use
+- Temporal evolution of a variable at a point or region
+
+### Workflow
+1. **Area average** — `ts = data.mean(dim=['latitude', 'longitude'])` (with lat weighting!).
+2. **Figure** — `fig, ax = plt.subplots(figsize=(10, 6))`.
+3. **Raw line** — `ax.plot(ts.time, ts, linewidth=1.5)`.
+4. **Smoothing** — Add rolling mean overlay with contrasting color.
+5. **Date formatting** — `fig.autofmt_xdate(rotation=30)`.
+
+### Quality Checklist
+- [ ] Figure 10×6
+- [ ] Y-axis has explicit units
+- [ ] Legend included if multiple lines
+- [ ] Trend line if requested: dashed with slope annotation
+
+### Enhancements
+- **Uncertainty band**: `ax.fill_between(time, mean-std, mean+std, alpha=0.2)`
+- **Event markers**: `ax.axvline(date, color='red', ls='--')`
+- **Twin axis**: `ax2 = ax.twinx()` for second variable
+
+### Common Pitfalls
+- ⚠️ Hourly data over 10+ years → unreadable block of ink. Resample to daily first.
+""",
+
+    "visualization_anomaly_map": """
+## Anomaly Map Visualization
+
+### When to use
+- Diverging data: departures, trends, z-scores
+- Any map that has positive AND negative values
+
+### Workflow
+1. **Center at zero** — `from matplotlib.colors import TwoSlopeNorm`.
+2. **Norm** — `norm = TwoSlopeNorm(vmin=data.min(), vcenter=0, vmax=data.max())`.
+3. **Plot** — `pcolormesh(..., cmap='RdBu_r', norm=norm)`.
+4. **Stippling** — Overlay significance: `contourf(..., levels=[0, 0.05], hatches=['...'], colors='none')`.
+
+### Quality Checklist
+- [ ] Zero is EXACTLY white/neutral in the colorbar
+- [ ] Warm/dry = Red; Cool/wet = Blue
+- [ ] Precip anomalies: consider `BrBG` instead of `RdBu_r`
+
+### Common Pitfalls
+- ⚠️ Without `TwoSlopeNorm`, skewed data makes 0 appear colored → reader is misled.
+- ⚠️ Symmetric vmin/vmax (`vmax = max(abs(data))`) can also work but wastes color range.
+""",
+
+    "visualization_wind": """
+## Wind & Vector Visualization
+
+### When to use
+- Circulation patterns, wind fields, quiver/streamline plots
+
+### Workflow
+1. **Speed background** — `wspd` with `pcolormesh` + `YlOrRd`.
+2. **Subsample vectors** — `skip = (slice(None, None, 5), slice(None, None, 5))` to avoid solid black.
+3. **Quiver** — `ax.quiver(lons[skip], lats[skip], u[skip], v[skip], color='black')`.
+4. **Alternative** — `ax.streamplot()` for flow visualization (less cluttered).
+
+### Quality Checklist
+- [ ] Background heatmap shows magnitude
+- [ ] Vectors sparse enough to be readable
+- [ ] Wind barbs: `ax.barbs()` for meteorological display
+
+### Common Pitfalls
+- ⚠️ Full-resolution quiver = completely black, unreadable mess.
+- ⚠️ Check arrow scaling — default autoscale can make light winds invisible.
+
+### Interpretation
+- Arrows = direction, background color = magnitude. Cyclonic rotation = storm.
+""",
+
+    "visualization_comparison": """
+## Multi-Panel Comparison
+
+### When to use
+- Before/after, two periods, difference maps
+- Multi-variable side-by-side
+
+### Workflow
+1. **Grid** — `fig, axes = plt.subplots(1, 3, figsize=(18, 6))`.
+2. **Panels 1 & 2** — Absolute values with SHARED `vmin`/`vmax`.
+3. **Panel 3** — Difference (A-B) with diverging cmap centered at zero.
+
+### Quality Checklist
+- [ ] Panels 1 & 2 share EXACT same vmin/vmax (otherwise visual comparison is invalid)
+- [ ] Panel 3 has its own divergent colorbar centered at zero
+- [ ] Titles clearly label what each panel shows
+
+### Common Pitfalls
+- ⚠️ Auto-scaled panels = impossible to compare visually. Always lock limits.
+""",
+
+    "visualization_profile": """
+## Hovmöller Diagrams
+
+### When to use
+- Lat-time or lon-time cross-sections
+- Tracking wave propagation, ITCZ migration, monsoon onset
+
+### Workflow
+1. **Average out one dimension** — e.g., average across latitudes to get (lon, time).
+2. **Transpose** — X=Time, Y=Lon/Lat.
+3. **Plot** — `contourf` or `pcolormesh`, figure 12×6.  
+
+### Quality Checklist
+- [ ] X-axis uses date formatting
+- [ ] Y-axis labels state the averaged geographic slice
+- [ ] Colormap matches variable type
+
+### Common Pitfalls
+- ⚠️ Swapping axes makes the diagram unintuitive. Time → X-axis convention.
+
+### Interpretation
+- Diagonal banding = propagating waves/systems. Vertical banding = stationary patterns.
+""",
+
+    "visualization_distribution": """
+## Distribution Visualization
+
+### When to use
+- Histograms, PDFs, box plots
+- Comparing two time periods or regions
+
+### Workflow
+1. **Flatten** — `.values.flatten()`, drop NaNs.
+2. **Shared bins** — `np.linspace(min, max, 50)`.
+3. **Plot** — `ax.hist(data, bins=bins, alpha=0.5, density=True, label='Period')`.
+4. **Median/mean markers** — Vertical lines with annotation.
+
+### Quality Checklist
+- [ ] `density=True` for comparing different-sized samples
+- [ ] `alpha=0.5` for overlapping distributions
+- [ ] Legend when comparing multiple distributions
+
+### Common Pitfalls
+- ⚠️ Raw counts (not density) skew comparison between periods with different sample sizes.
+- ⚠️ Too few bins = lost detail. Too many = noisy. 30-50 bins is usually good.
+
+### Interpretation
+- Rightward shift = warming. Flatter + wider = more variability = more extremes.
+""",
+
+    "visualization_animation": """
+## Animated/Sequential Maps
+
+### When to use
+- Monthly/seasonal evolution of a field
+- Event lifecycle (genesis → peak → decay)
+
+### Workflow
+1. **Global limits** — Find absolute vmin/vmax across ALL timesteps.
+2. **Multi-panel grid** — `fig, axes = plt.subplots(2, 3, figsize=(18, 12))` for 6 timesteps.
+3. **Lock colorbars** — Same vmin/vmax on every panel.
+4. **Shared colorbar** — Remove per-panel colorbars, add one at the bottom.
+
+### Quality Checklist
+- [ ] Colorbar limits LOCKED across all panels (no jumping colors)
+- [ ] Timestamps clearly labeled on each panel
+- [ ] Static grid preferred over video (headless environment)
+
+### Common Pitfalls
+- ⚠️ Auto-scaled panels flash/jump between frames — always lock limits.
+- ⚠️ MP4/GIF generation may fail in headless — use PNG grids instead.
+""",
+
+    "visualization_dashboard": """
+## Summary Dashboard
+
+### When to use
+- Comprehensive overview: map + time series + statistics in one figure
+- Publication-ready event summaries
+
+### Workflow
+1. **Layout** — `fig = plt.figure(figsize=(16, 10))` + `matplotlib.gridspec`.
+2. **Top row** — Large spatial map (anomaly or mean field).
+3. **Bottom left** — Time series of regional mean.
+4. **Bottom right** — Distribution histogram or box plot.
+
+### Quality Checklist
+- [ ] `plt.tight_layout()` or `constrained_layout=True` to prevent overlap
+- [ ] Consistent color theme across all panels
+- [ ] Clear panel labels (a, b, c)
+
+### Common Pitfalls
+- ⚠️ Cramming too much into small figure → illegible text. Scale figure size up.
+- ⚠️ Different aspect ratios between map and time series need explicit gridspec ratios.
+""",
+
+    "visualization_contour": """
+## Contour & Isobar Plots
+
+### When to use
+- Pressure maps with isobars
+- Temperature isotherms
+- Any smoothly varying field where specific levels matter
+
+### Workflow
+1. **Define levels** — `levels = np.arange(990, 1040, 4)` for MSLP isobars.
+2. **Filled contour** — `ax.contourf(lons, lats, data, levels=levels, cmap=...)`.
+3. **Contour lines** — `cs = ax.contour(lons, lats, data, levels=levels, colors='black', linewidths=0.5)`.
+4. **Labels** — `ax.clabel(cs, inline=True, fontsize=8)`.
+
+### Quality Checklist
+- [ ] Level spacing is physically meaningful (e.g., 4 hPa for MSLP)
+- [ ] Contour labels don't overlap
+- [ ] Filled + line contours combined for best readability
+
+### Common Pitfalls
+- ⚠️ Too many levels → cluttered, unreadable. 10-15 levels max.
+- ⚠️ Non-uniform level spacing requires manual colorbar ticks.
+
+### Interpretation
+- Tightly packed isobars = strong pressure gradient = high winds.
+""",
+
+    "visualization_correlation_map": """
+## Spatial Correlation Maps
+
+### When to use
+- Showing where a variable correlates with an index (e.g., ENSO vs global precip)
+- Teleconnection mapping
+
+### Workflow
+1. **Compute index** — 1D time series (e.g., Niño3.4 SST anomaly).
+2. **Correlate** — `xr.corr(index, spatial_field, dim='time')` → 2D R-map.
+3. **Significance** — Compute p-values from sample size and R.
+4. **Plot** — Map R values with `RdBu_r` centered at zero. Stipple p < 0.05.
+
+### Quality Checklist
+- [ ] Both index and field deseasonalized
+- [ ] R-map centered at zero (TwoSlopeNorm or symmetric limits)
+- [ ] Significant areas stippled or hatched
+- [ ] Sample size ≥30 stated
+
+### Common Pitfalls
+- ⚠️ Raw data correlations dominated by shared seasonal cycle.
+- ⚠️ Field significance: many grid points → some will be significant by chance. Apply FDR correction.
+
+### Interpretation
+- R > 0: in-phase with index. R < 0: out-of-phase. |R| > 0.5 = strong relationship.
+""",
+
+    # -------------------------------------------------------------------------
+    # MARITIME ANALYSIS
+    # -------------------------------------------------------------------------
+    "maritime_route": """
+## Maritime Route Risk Analysis
+
+### When to use
+- Analyzing weather risks along calculated shipping lanes
+- Voyage planning and hazard assessment
+
+### Workflow
+1. **Route** — Call `calculate_maritime_route` → waypoints + bounding box.
+2. **Data** — Download `u10`, `v10` for route bbox, target month, last 3 years.
+3. **Wind speed** — `wspd = np.sqrt(u10**2 + v10**2)`.
+4. **Extract** — Loop waypoints: `.sel(lat=lat, lon=lon, method='nearest')`.
+5. **Risk classify** — Safe (<10), Caution (10-17), Danger (17-24), Extreme (>24 m/s).
+6. **Statistics** — P95 wind speed at each waypoint, % time in each risk category.
+
+### Quality Checklist
+- [ ] Bounding box from route tool used DIRECTLY (don't convert coords)
+- [ ] 3-year period for climatological context, not just one date
+- [ ] Risk categories applied at waypoint level
+
+### Common Pitfalls
+- ⚠️ Global hourly downloads → timeout. Subset tightly to route bbox.
+- ⚠️ Don't use bounding box mean — extract AT waypoints for route-specific risk.
+""",
+
+    "maritime_visualization": """
+## Maritime Route Risk Visualization
+
+### When to use
+- Plotting route risk maps with waypoint-level risk coloring
+
+### Workflow
+1. **Background** — Map mean `wspd` with `pcolormesh` + `YlOrRd`.
+2. **Route line** — Dashed line connecting waypoints.
+3. **Waypoint scatter** — Color by risk: Green (<10), Amber (10-17), Coral (17-24), Red (>24 m/s).
+4. **Labels** — "ORIGIN" and "DEST" annotations.
+5. **Legend** — Custom 4-category legend (mandatory).
+
+### Quality Checklist
+- [ ] 4-category risk legend ALWAYS included
+- [ ] Origin/Destination labeled
+- [ ] Colormap: `YlOrRd` for wind speed
+- [ ] Saved to PLOTS_DIR
+
+### Common Pitfalls
+- ⚠️ No legend → colored dots are meaningless to the user.
+- ⚠️ Route line + waypoints must be on top (high zorder) to not be hidden by background.
+""",
+}
+
+
+# =============================================================================
+# ARGUMENT SCHEMA
+# =============================================================================
+
+class AnalysisGuideArgs(BaseModel):
+    """Arguments for analysis guide retrieval."""
+
+    topic: Literal[
+        # Data operations
+        "load_data",
+        "spatial_subset",
+        "temporal_subset",
+        # Statistical analysis
+        "anomalies",
+        "zscore",
+        "trend_analysis",
+        "eof_analysis",
+        # Advanced analysis
+        "correlation_analysis",
+        "composite_analysis",
+        "diurnal_cycle",
+        "seasonal_decomposition",
+        "spectral_analysis",
+        "spatial_statistics",
+        "multi_variable",
+        "climatology_normals",
+        # Climate indices & extremes
+        "climate_indices",
+        "extremes",
+        "drought_analysis",
+        "heatwave_detection",
+        "atmospheric_rivers",
+        "blocking_events",
+        # Domain-specific
+        "energy_budget",
+        "wind_energy",
+        "moisture_budget",
+        "convective_potential",
+        "snow_cover",
+        # Visualization
+        "visualization_spatial",
+        "visualization_timeseries",
+        "visualization_anomaly_map",
+        "visualization_wind",
+        "visualization_comparison",
+        "visualization_profile",
+        "visualization_distribution",
+        "visualization_animation",
+        "visualization_dashboard",
+        "visualization_contour",
+        "visualization_correlation_map",
+        # Maritime
+        "maritime_route",
+        "maritime_visualization",
+    ] = Field(
+        description="Analysis topic to get guidance for"
+    )
+
+
+# =============================================================================
+# TOOL FUNCTION
+# =============================================================================
+
+def get_analysis_guide(topic: str) -> str:
+    """
+    Get methodological guidance for climate data analysis.
+
+    Returns text instructions for using python_repl to perform the analysis.
+    """
+    guide = ANALYSIS_GUIDES.get(topic)
+
+    if not guide:
+        available = ", ".join(sorted(ANALYSIS_GUIDES.keys()))
+        return f"Unknown topic: {topic}. Available: {available}"
+
+    return f"""
+# Analysis Guide: {topic.replace('_', ' ').title()}
+
+{guide}
+
+---
+Use python_repl to implement this analysis with your downloaded ERA5 data.
+"""
+
+
+# =============================================================================
+# TOOL DEFINITIONS
+# =============================================================================
+
+analysis_guide_tool = StructuredTool.from_function(
+    func=get_analysis_guide,
+    name="get_analysis_guide",
+    description="""
+    Get methodological guidance for climate data analysis.
+
+    Returns workflow steps, quality checklists, and pitfall warnings for:
+    - Data: load_data, spatial_subset, temporal_subset
+    - Statistics: anomalies, zscore, trend_analysis, eof_analysis
+    - Advanced: correlation_analysis, composite_analysis, diurnal_cycle,
+      seasonal_decomposition, spectral_analysis, spatial_statistics,
+      multi_variable, climatology_normals
+    - Climate: climate_indices, extremes, drought_analysis, heatwave_detection,
+      atmospheric_rivers, blocking_events
+    - Domain: energy_budget, wind_energy, moisture_budget, convective_potential, snow_cover
+    - Visualization: visualization_spatial, visualization_timeseries,
+      visualization_anomaly_map, visualization_wind, visualization_comparison,
+      visualization_profile, visualization_distribution, visualization_animation,
+      visualization_dashboard, visualization_contour, visualization_correlation_map
+    - Maritime: maritime_route, maritime_visualization
+
+    Use this BEFORE writing analysis code in python_repl.
+    """,
+    args_schema=AnalysisGuideArgs,
+)
+
+
+# Visualization guide - alias for backward compatibility
+visualization_guide_tool = StructuredTool.from_function(
+    func=get_analysis_guide,
+    name="get_visualization_guide",
+    description="""
+    Get publication-grade visualization instructions for ERA5 climate data.
+
+    CALL THIS BEFORE creating any plot to get:
+    - Correct colormap choices
+    - Standard value ranges
+    - Required map elements
+    - Best practices
+
+    Available visualization topics:
+    - visualization_spatial: Maps with proper projections
+    - visualization_timeseries: Time series plots
+    - visualization_anomaly_map: Diverging anomaly maps
+    - visualization_wind: Quiver/streamline plots
+    - visualization_comparison: Multi-panel comparisons
+    - visualization_profile: Hovmöller diagrams
+    - visualization_distribution: Histograms/PDFs
+    - visualization_animation: Sequential map grids
+    - visualization_dashboard: Multi-panel summaries
+    - visualization_contour: Isobar/isotherm plots
+    - visualization_correlation_map: Spatial correlation maps
+    - maritime_visualization: Route risk maps
+    """,
+    args_schema=AnalysisGuideArgs,
+)
+
+--------------------------------------------------------------------------------
+eurus/tools/era5.py
+code
+"""
+ERA5 Data Retrieval Tool (Wrapper)
+==================================
+LangChain tool definition. Imports core logic from ..retrieval
+
+This is a THIN WRAPPER - all retrieval logic lives in eurus/retrieval.py
+
+QUERY_TYPE IS AUTO-DETECTED based on time/area rules:
+- TEMPORAL: time > 1 day AND area < 30°×30°
+- SPATIAL:  time ≤ 1 day OR  area ≥ 30°×30°
+"""
+
+import logging
+from typing import Optional
+from datetime import datetime
+
+from pydantic import BaseModel, Field, field_validator
+from langchain_core.tools import StructuredTool
+
+# IMPORT CORE LOGIC FROM RETRIEVAL MODULE - SINGLE SOURCE OF TRUTH
+from ..retrieval import retrieve_era5_data as _retrieve_era5_data
+from ..config import get_short_name
+
+logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# ARGUMENT SCHEMA (NO query_type - it's auto-detected!)
+# ============================================================================
+
+class ERA5RetrievalArgs(BaseModel):
+    """Arguments for ERA5 data retrieval. query_type is AUTO-DETECTED."""
+
+    variable_id: str = Field(
+        description=(
+            "ERA5 variable short name. Available variables (22 total):\n"
+            "Ocean: sst (Sea Surface Temperature)\n"
+            "Temperature: t2 (2m Air Temp), d2 (2m Dewpoint), skt (Skin Temp)\n"
+            "Wind 10m: u10 (Eastward), v10 (Northward)\n"
+            "Wind 100m: u100 (Eastward), v100 (Northward)\n"
+            "Pressure: sp (Surface), mslp (Mean Sea Level)\n"
+            "Boundary Layer: blh (BL Height), cape (CAPE)\n"
+            "Cloud/Precip: tcc (Cloud Cover), cp (Convective), lsp (Large-scale), tp (Total Precip)\n"
+            "Radiation: ssr (Net Solar), ssrd (Solar Downwards)\n"
+            "Moisture: tcw (Total Column Water), tcwv (Water Vapour)\n"
+            "Land: sd (Snow Depth), stl1 (Soil Temp L1), swvl1 (Soil Water L1)"
+        )
+    )
+
+    start_date: str = Field(
+        description="Start date in YYYY-MM-DD format (e.g., '2021-02-01')"
+    )
+
+    end_date: str = Field(
+        description="End date in YYYY-MM-DD format (e.g., '2023-02-28')"
+    )
+
+    min_latitude: float = Field(
+        ge=-90.0, le=90.0,
+        description="Southern latitude bound (-90 to 90)"
+    )
+
+    max_latitude: float = Field(
+        ge=-90.0, le=90.0,
+        description="Northern latitude bound (-90 to 90)"
+    )
+
+    min_longitude: float = Field(
+        ge=-180.0, le=360.0,
+        description="Western longitude bound. Use -180 to 180 for Europe/Atlantic."
+    )
+
+    max_longitude: float = Field(
+        ge=-180.0, le=360.0,
+        description="Eastern longitude bound. Use -180 to 180 for Europe/Atlantic."
+    )
+
+    region: Optional[str] = Field(
+        default=None,
+        description=(
+            "Optional predefined region (overrides lat/lon if specified):\n"
+            "north_atlantic, mediterranean, nino34, global"
+        )
+    )
+
+    @field_validator('start_date', 'end_date')
+    @classmethod
+    def validate_date_format(cls, v: str) -> str:
+        try:
+            datetime.strptime(v, '%Y-%m-%d')
+        except ValueError:
+            raise ValueError(f"Date must be in YYYY-MM-DD format, got: {v}")
+        return v
+
+    @field_validator('variable_id')
+    @classmethod
+    def validate_variable(cls, v: str) -> str:
+        from ..config import get_all_short_names
+        short_name = get_short_name(v)
+        valid_vars = get_all_short_names()  # DRY: use config as single source of truth
+        if short_name not in valid_vars:
+            logger.warning(f"Variable '{v}' may not be available. Will attempt anyway.")
+        return v
+
+
+# ============================================================================
+# AUTO-DETECT QUERY TYPE
+# ============================================================================
+
+def _auto_detect_query_type(
+    start_date: str,
+    end_date: str,
+    min_lat: float,
+    max_lat: float,
+    min_lon: float,
+    max_lon: float
+) -> str:
+    """
+    Auto-detect optimal query_type based on time/area rules.
+    
+    RULES:
+    - TEMPORAL: time > 1 day AND area < 30°×30° (900 sq degrees)
+    - SPATIAL:  time ≤ 1 day OR  area ≥ 30°×30°
+    """
+    # Calculate time span in days
+    start = datetime.strptime(start_date, '%Y-%m-%d')
+    end = datetime.strptime(end_date, '%Y-%m-%d')
+    time_days = (end - start).days + 1  # inclusive
+    
+    # Calculate area in square degrees
+    lat_span = abs(max_lat - min_lat)
+    lon_span = abs(max_lon - min_lon)
+    area = lat_span * lon_span
+    
+    # Decision logic
+    if time_days > 1 and area < 900:
+        query_type = "temporal"
+    else:
+        query_type = "spatial"
+    
+    logger.info(f"Auto-detected query_type: {query_type} "
+                f"(time={time_days}d, area={area:.0f}sq°)")
+    
+    return query_type
+
+
+# ============================================================================
+# WRAPPER FUNCTION (auto-adds query_type)
+# ============================================================================
+
+def retrieve_era5_data(
+    variable_id: str,
+    start_date: str,
+    end_date: str,
+    min_latitude: float,
+    max_latitude: float,
+    min_longitude: float,
+    max_longitude: float,
+    region: Optional[str] = None
+) -> str:
+    """
+    Wrapper that auto-detects query_type and calls the real retrieval function.
+    """
+    # Auto-detect query type
+    query_type = _auto_detect_query_type(
+        start_date, end_date,
+        min_latitude, max_latitude,
+        min_longitude, max_longitude
+    )
+    
+    # Call the real retrieval function
+    return _retrieve_era5_data(
+        query_type=query_type,
+        variable_id=variable_id,
+        start_date=start_date,
+        end_date=end_date,
+        min_latitude=min_latitude,
+        max_latitude=max_latitude,
+        min_longitude=min_longitude,
+        max_longitude=max_longitude,
+        region=region
+    )
+
+
+# ============================================================================
+# LANGCHAIN TOOL CREATION
+# ============================================================================
+
+era5_tool = StructuredTool.from_function(
+    func=retrieve_era5_data,
+    name="retrieve_era5_data",
+    description=(
+        "Retrieves ERA5 climate reanalysis data from Earthmover's cloud archive.\n\n"
+        "⚠️ query_type is AUTO-DETECTED - you don't need to specify it!\n\n"
+        "Just provide:\n"
+        "- variable_id: one of 22 ERA5 variables (sst, t2, d2, skt, u10, v10, u100, v100, "
+        "sp, mslp, blh, cape, tcc, cp, lsp, tp, ssr, ssrd, tcw, tcwv, sd, stl1, swvl1)\n"
+        "- start_date, end_date: YYYY-MM-DD format\n"
+        "- lat/lon bounds: Use values from maritime route bounding box!\n\n"
+        "DATA: 1975-2024.\n"
+        "Returns file path. Load with: xr.open_zarr('PATH')"
+    ),
+    args_schema=ERA5RetrievalArgs
+)
+
+--------------------------------------------------------------------------------
+eurus/tools/repl.py
+code
+"""
+Superb Python REPL Tool
+=======================
+A persistent Python execution environment for the agent.
+Uses a SUBPROCESS for true process isolation — can be cleanly killed on timeout.
+
+PLOT CAPTURE: When running in web mode, plots are captured via callback.
+"""
+
+import sys
+import io
+import json
+import logging
+import gc
+import os
+import re
+import base64
+import tempfile
+import subprocess
+import threading
+import traceback
+import matplotlib
+# Force non-interactive backend to prevent crashes on headless servers
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors  # Pre-import for custom colormaps
+
+logger = logging.getLogger(__name__)
+import matplotlib.cm as cm  # Pre-import for colormap access
+
+# =============================================================================
+# PUBLICATION-GRADE LIGHT THEME (white background for academic papers)
+# =============================================================================
+_EURUS_STYLE = {
+    # ── Figure ──
+    "figure.figsize": (10, 6),
+    "figure.dpi": 150,
+    "figure.facecolor": "white",
+    "figure.edgecolor": "white",
+    "savefig.facecolor": "white",
+    "savefig.edgecolor": "white",
+    "savefig.dpi": 300,          # 300 DPI for print-quality
+    "savefig.bbox": "tight",
+    "savefig.pad_inches": 0.15,
+    # ── Axes ──
+    "axes.facecolor": "white",
+    "axes.edgecolor": "#333333",
+    "axes.labelcolor": "#1a1a1a",
+    "axes.titlecolor": "#000000",
+    "axes.labelsize": 12,
+    "axes.titlesize": 14,
+    "axes.titleweight": "bold",
+    "axes.titlepad": 12,
+    "axes.grid": True,
+    "axes.spines.top": False,
+    "axes.spines.right": False,
+    "axes.linewidth": 0.8,
+    # ── Grid ──
+    "grid.color": "#d0d0d0",
+    "grid.alpha": 0.5,
+    "grid.linewidth": 0.5,
+    "grid.linestyle": "--",
+    # ── Ticks ──
+    "xtick.color": "#333333",
+    "ytick.color": "#333333",
+    "xtick.labelsize": 10,
+    "ytick.labelsize": 10,
+    "xtick.direction": "out",
+    "ytick.direction": "out",
+    # ── Text ──
+    "text.color": "#1a1a1a",
+    "font.family": "sans-serif",
+    "font.sans-serif": ["DejaVu Sans", "Arial", "Helvetica"],
+    "font.size": 11,
+    # ── Lines ──
+    "lines.linewidth": 1.8,
+    "lines.antialiased": True,
+    "lines.markersize": 5,
+    # ── Legend ──
+    "legend.facecolor": "white",
+    "legend.edgecolor": "#cccccc",
+    "legend.fontsize": 10,
+    "legend.framealpha": 0.95,
+    "legend.shadow": False,
+    # ── Colorbar ──
+    "image.cmap": "viridis",
+    # ── Patches ──
+    "patch.edgecolor": "#333333",
+}
+matplotlib.rcParams.update(_EURUS_STYLE)
+
+# Curated color cycle for white backgrounds (high-contrast, publication-safe)
+_EURUS_COLORS = [
+    "#1f77b4",  # steel blue
+    "#d62728",  # brick red
+    "#2ca02c",  # forest green
+    "#ff7f0e",  # orange
+    "#9467bd",  # muted purple
+    "#17becf",  # cyan
+    "#e377c2",  # pink
+    "#8c564b",  # brown
+]
+matplotlib.rcParams["axes.prop_cycle"] = matplotlib.cycler(color=_EURUS_COLORS)
+
+from typing import Dict, Optional, Type, Callable
+from pathlib import Path
+from pydantic import BaseModel, Field
+from langchain_core.tools import BaseTool
+
+# Import PLOTS_DIR for correct plot saving location
+from eurus.config import PLOTS_DIR
+
+# Pre-import common scientific libraries for convenience (parent-side only)
+import pandas as pd
+import numpy as np
+import xarray as xr
+from datetime import datetime, timedelta
+
+
+
+# =============================================================================
+# PERSISTENT SUBPROCESS REPL
+# =============================================================================
+
+# The Python script that runs inside the subprocess.
+# It receives JSON commands on stdin and sends JSON responses on stdout.
+_SUBPROCESS_SCRIPT = r'''
+import sys
+import os
+import json
+import gc
+from io import StringIO
+
+# Apply Eurus matplotlib style INSIDE the subprocess
+import matplotlib
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
+import matplotlib.cm as cm
+
+_style = json.loads(os.environ.get("EURUS_MPL_STYLE", "{}"))
+if _style:
+    matplotlib.rcParams.update(_style)
+_colors = json.loads(os.environ.get("EURUS_MPL_COLORS", "[]"))
+if _colors:
+    matplotlib.rcParams["axes.prop_cycle"] = matplotlib.cycler(color=_colors)
+
+# Pre-import scientific stack
+import pandas as pd
+import numpy as np
+import xarray as xr
+from datetime import datetime, timedelta
+
+# Set up execution globals with pre-loaded libraries
+exec_globals = {
+    "__builtins__": __builtins__,
+    "pd": pd,
+    "np": np,
+    "xr": xr,
+    "plt": plt,
+    "mcolors": mcolors,
+    "cm": cm,
+    "datetime": datetime,
+    "timedelta": timedelta,
+    "PLOTS_DIR": os.environ.get("EURUS_PLOTS_DIR", "plots"),
+}
+
+# Signal readiness
+print("SUBPROCESS_READY", flush=True)
+
+while True:
+    try:
+        line = input()
+        if line == "EXIT_SUBPROCESS":
+            break
+
+        cmd = json.loads(line)
+
+        if cmd["type"] == "exec":
+            code = cmd["code"]
+
+            stdout_capture = StringIO()
+            stderr_capture = StringIO()
+            old_stdout, old_stderr = sys.stdout, sys.stderr
+
+            try:
+                sys.stdout = stdout_capture
+                sys.stderr = stderr_capture
+
+                # Try eval first (expression mode), fall back to exec
+                try:
+                    compiled = compile(code, "<repl>", "eval")
+                    result = eval(compiled, exec_globals)
+                    output = stdout_capture.getvalue()
+                    if result is not None:
+                        output += repr(result)
+                    if not output.strip():
+                        output = repr(result) if result is not None else "(No output)"
+                except SyntaxError:
+                    exec(code, exec_globals)
+                    output = stdout_capture.getvalue()
+                    if not output.strip():
+                        output = "(Executed successfully. Use print() to see results.)"
+
+                sys.stdout, sys.stderr = old_stdout, old_stderr
+                result_json = {
+                    "status": "success",
+                    "stdout": output.strip(),
+                    "stderr": stderr_capture.getvalue(),
+                }
+
+            except Exception as e:
+                sys.stdout, sys.stderr = old_stdout, old_stderr
+                import traceback
+                result_json = {
+                    "status": "error",
+                    "error": f"Error: {str(e)}\n{traceback.format_exc()}",
+                    "stdout": stdout_capture.getvalue(),
+                    "stderr": stderr_capture.getvalue(),
+                }
+            finally:
+                plt.close("all")
+                gc.collect()
+
+            print(json.dumps(result_json), flush=True)
+
+    except EOFError:
+        break
+    except Exception as e:
+        # Fatal error in the communication loop itself
+        old_stdout = sys.__stdout__
+        sys.stdout = old_stdout
+        print(json.dumps({"status": "fatal", "error": str(e)}), flush=True)
+'''
+
+
+class PersistentREPL:
+    """
+    Manages a persistent Python subprocess for code execution.
+    Provides true process isolation with clean kill on timeout.
+    """
+
+    def __init__(self, working_dir: str = "."):
+        self._working_dir = working_dir
+        self._process: Optional[subprocess.Popen] = None
+        self._temp_script: Optional[str] = None
+        self._lock = threading.Lock()  # Serialize access per instance
+        self._start_subprocess()
+
+    def _start_subprocess(self):
+        """Start a new Python subprocess with Eurus environment."""
+        # Write the subprocess script to a temp file
+        with tempfile.NamedTemporaryFile(
+            mode="w", suffix=".py", delete=False, prefix="eurus_repl_"
+        ) as f:
+            f.write(_SUBPROCESS_SCRIPT)
+            self._temp_script = f.name
+
+        # Build env: inject matplotlib style + PLOTS_DIR
+        env = os.environ.copy()
+        env["EURUS_MPL_STYLE"] = json.dumps(
+            {k: v for k, v in _EURUS_STYLE.items() if isinstance(v, (int, float, str, bool))}
+        )
+        env["EURUS_MPL_COLORS"] = json.dumps(_EURUS_COLORS)
+        env["EURUS_PLOTS_DIR"] = str(PLOTS_DIR)
+        env["MPLBACKEND"] = "Agg"
+        env["PYTHONUNBUFFERED"] = "1"
+
+        self._process = subprocess.Popen(
+            [sys.executable, "-u", self._temp_script],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            bufsize=0,
+            cwd=self._working_dir if os.path.isdir(self._working_dir) else None,
+            env=env,
+        )
+
+        # Wait for ready signal
+        ready_line = self._process.stdout.readline()
+        if "SUBPROCESS_READY" not in ready_line:
+            raise RuntimeError(f"Subprocess failed to start: {ready_line!r}")
+
+        logger.info("Started REPL subprocess (PID: %d)", self._process.pid)
+
+    def _ensure_alive(self):
+        """Restart subprocess if it has died."""
+        if self._process is None or self._process.poll() is not None:
+            logger.warning("REPL subprocess died — restarting")
+            self._cleanup_process()
+            self._start_subprocess()
+
+    def run(self, code: str, timeout: int = 300) -> str:
+        """Execute code in the subprocess. Returns output string."""
+        with self._lock:
+            self._ensure_alive()
+
+            cmd = json.dumps({"type": "exec", "code": code}) + "\n"
+            try:
+                self._process.stdin.write(cmd)
+                self._process.stdin.flush()
+            except (BrokenPipeError, OSError) as e:
+                logger.error("Subprocess stdin broken: %s — restarting", e)
+                self._cleanup_process()
+                self._start_subprocess()
+                return f"Error: REPL subprocess crashed. Please re-run your code."
+
+            # Read response with timeout
+            result_line = self._read_with_timeout(timeout)
+
+            if result_line is None:
+                # Timeout — kill subprocess and restart
+                logger.warning("REPL execution timed out after %ds — killing subprocess", timeout)
+                self._kill_subprocess()
+                self._start_subprocess()
+                return (
+                    "TIMEOUT ERROR: Execution exceeded "
+                    f"{timeout} seconds ({timeout // 60} min). "
+                    "TIP: Resample data to daily/monthly before plotting "
+                    "(e.g., ds.resample(time='D').mean())."
+                )
+
+            try:
+                result = json.loads(result_line)
+            except json.JSONDecodeError:
+                return f"Error: Malformed response from subprocess: {result_line!r}"
+
+            if result["status"] == "success":
+                output = result.get("stdout", "")
+                stderr = result.get("stderr", "")
+                if stderr:
+                    output = f"{output}\n{stderr}" if output else stderr
+                return output or "(No output)"
+            elif result["status"] == "error":
+                return result.get("error", "Unknown error")
+            else:
+                return f"Fatal subprocess error: {result.get('error', 'Unknown')}"
+
+    def _read_with_timeout(self, timeout: int) -> Optional[str]:
+        """Read one line from subprocess stdout with a timeout."""
+        result = [None]
+
+        def _reader():
+            try:
+                result[0] = self._process.stdout.readline()
+            except Exception:
+                pass
+
+        reader_thread = threading.Thread(target=_reader, daemon=True)
+        reader_thread.start()
+        reader_thread.join(timeout=timeout)
+
+        if reader_thread.is_alive():
+            return None  # Timed out
+        return result[0] if result[0] else None
+
+    def _kill_subprocess(self):
+        """Force-kill the subprocess."""
+        if self._process:
+            try:
+                self._process.terminate()
+                try:
+                    self._process.wait(timeout=3)
+                except subprocess.TimeoutExpired:
+                    self._process.kill()
+                    self._process.wait(timeout=2)
+            except Exception as e:
+                logger.error("Error killing subprocess: %s", e)
+            self._process = None
+
+    def _cleanup_process(self):
+        """Clean up subprocess and temp files."""
+        self._kill_subprocess()
+        if self._temp_script and os.path.exists(self._temp_script):
+            try:
+                os.unlink(self._temp_script)
+            except OSError:
+                pass
+            self._temp_script = None
+
+    def close(self):
+        """Gracefully shutdown the subprocess."""
+        if self._process and self._process.poll() is None:
+            try:
+                self._process.stdin.write("EXIT_SUBPROCESS\n")
+                self._process.stdin.flush()
+                self._process.wait(timeout=3)
+                logger.info("REPL subprocess exited gracefully (PID: %d)", self._process.pid)
+            except Exception:
+                self._kill_subprocess()
+        self._cleanup_process()
+
+
+# =============================================================================
+# LANGCHAIN TOOL
+# =============================================================================
+
+class PythonREPLInput(BaseModel):
+    code: str = Field(description="The Python code to execute.")
+
+
+class PythonREPLTool(BaseTool):
+    name: str = "python_repl"
+    description: str = (
+        "A Python REPL for data analysis and visualization.\n\n"
+        "CRITICAL PLOTTING RULES:\n"
+        "1. ALWAYS save to PLOTS_DIR: plt.savefig(f'{PLOTS_DIR}/filename.png')\n"
+        "2. Use descriptive filenames (e.g., 'route_risk_map.png')\n"
+        "\n\n"
+        "MEMORY RULES:\n"
+        "1. NEVER use .load() or .compute() on large datasets\n"
+        "2. Resample multi-year data first: ds.resample(time='D').mean()\n"
+        "3. Use .sel() to subset data before operations\n\n"
+        "Pre-loaded: pd, np, xr, plt, mcolors, cm, datetime, timedelta, PLOTS_DIR (string path)"
+    )
+    args_schema: Type[BaseModel] = PythonREPLInput
+    working_dir: str = "."
+    _repl: Optional[PersistentREPL] = None
+    _plot_callback: Optional[Callable] = None  # For web interface
+    _displayed_plots: set = set()
+
+    def __init__(self, working_dir: str = ".", **kwargs):
+        super().__init__(**kwargs)
+        self.working_dir = working_dir
+        self._plot_callback = None
+        self._displayed_plots = set()
+        self._repl = PersistentREPL(working_dir=working_dir)
+
+    def set_plot_callback(self, callback: Callable):
+        """Set callback for plot capture (used by web interface)."""
+        self._plot_callback = callback
+
+    def close(self):
+        """Clean up subprocess resources."""
+        if self._repl:
+            self._repl.close()
+            self._repl = None
+
+    def _display_image_in_terminal(self, filepath: str, base64_data: str):
+        """Display image in terminal — iTerm2/VSCode inline, or macOS Preview fallback."""
+        # Skip if already displayed this file in this session
+        if filepath in self._displayed_plots:
+            return
+        self._displayed_plots.add(filepath)
+
+        try:
+            term_program = os.environ.get("TERM_PROGRAM", "")
+
+            # iTerm2 inline image protocol (only iTerm2 supports this)
+            if "iTerm.app" in term_program:
+                sys.stdout.write(f"\033]1337;File=inline=1;width=auto;preserveAspectRatio=1:{base64_data}\a\n")
+                sys.stdout.flush()
+                return
+
+            # Fallback: open in Preview on macOS (only in CLI, not web)
+            if not self._plot_callback and os.path.exists(filepath):
+                import subprocess as _sp
+                _sp.Popen(["open", filepath], stdout=_sp.DEVNULL, stderr=_sp.DEVNULL)
+
+        except Exception as e:
+            logger.warning(f"Failed to display image in terminal: {e}")
+
+    def _capture_and_notify_plots(self, saved_files: list, code: str = ""):
+        """Capture plots and notify via callback."""
+        for filepath in saved_files:
+            try:
+                if os.path.exists(filepath):
+                    with open(filepath, 'rb') as f:
+                        img_data = f.read()
+                    b64_data = base64.b64encode(img_data).decode('utf-8')
+
+                    # Display in terminal
+                    self._display_image_in_terminal(filepath, b64_data)
+
+                    # Send to web UI via callback
+                    if self._plot_callback:
+                        self._plot_callback(b64_data, filepath, code)
+            except Exception as e:
+                print(f"Warning: Failed to capture plot {filepath}: {e}")
+
+    def _run(self, code: str) -> str:
+        """Execute the python code in the subprocess and return the output."""
+        from eurus.config import PLOTS_DIR
+
+        # Snapshot plots directory BEFORE execution
+        image_exts = {'.png', '.jpg', '.jpeg', '.svg', '.pdf', '.gif', '.webp'}
+        try:
+            before_files = {
+                f: os.path.getmtime(os.path.join(PLOTS_DIR, f))
+                for f in os.listdir(PLOTS_DIR)
+                if os.path.splitext(f)[1].lower() in image_exts
+            }
+        except FileNotFoundError:
+            before_files = {}
+
+        # Execute in subprocess
+        output = self._repl.run(code, timeout=300)
+
+        # Detect NEW plot files by comparing directory snapshots
+        try:
+            after_files = {
+                f: os.path.getmtime(os.path.join(PLOTS_DIR, f))
+                for f in os.listdir(PLOTS_DIR)
+                if os.path.splitext(f)[1].lower() in image_exts
+            }
+        except FileNotFoundError:
+            after_files = {}
+
+        new_files = []
+        for fname, mtime in after_files.items():
+            full_path = os.path.join(PLOTS_DIR, fname)
+            if fname not in before_files or mtime > before_files[fname]:
+                if full_path not in self._displayed_plots:
+                    new_files.append(full_path)
+
+        if new_files:
+            print(f"📊 {len(new_files)} plot(s) saved")
+            self._capture_and_notify_plots(new_files, code)
+
+        return output
+
+    async def _arun(self, code: str) -> str:
+        """Use the tool asynchronously — avoids blocking the event loop."""
+        import asyncio
+        loop = asyncio.get_event_loop()
+        return await loop.run_in_executor(None, self._run, code)
+
+--------------------------------------------------------------------------------
+eurus/tools/routing.py
+code
+"""
+Maritime Routing Tool
+=====================
+Strictly calculates maritime routes using global shipping lane graphs.
+Does NOT perform weather analysis. Returns waypoints for the Agent to analyze.
+
+Dependencies:
+- scgraph (for maritime pathfinding)
+"""
+
+import logging
+from datetime import datetime, timedelta
+from typing import List, Tuple, Any
+from pydantic import BaseModel, Field
+
+from langchain_core.tools import StructuredTool
+
+logger = logging.getLogger(__name__)
+
+# Check for optional dependencies
+HAS_ROUTING_DEPS = False
+try:
+    import scgraph
+    from scgraph.geographs.marnet import marnet_geograph
+    HAS_ROUTING_DEPS = True
+except ImportError:
+    pass
+
+
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
+
+def _normalize_lon(lon: float) -> float:
+    """Convert longitude to -180 to 180 range (scgraph format)."""
+    # Efficient modulo operation - prevents infinite loop on extreme values
+    return ((lon + 180) % 360) - 180
+
+
+
+
+
+def _get_maritime_path(origin: Tuple[float, float], dest: Tuple[float, float]) -> List[Tuple[float, float]]:
+    """Calculate shortest maritime path using scgraph."""
+    if not HAS_ROUTING_DEPS:
+        raise ImportError("Dependency 'scgraph' is missing.")
+
+    # Normalize longitudes for scgraph (-180 to 180)
+    origin_lon = _normalize_lon(origin[1])
+    dest_lon = _normalize_lon(dest[1])
+
+    graph = marnet_geograph
+    path_dict = graph.get_shortest_path(
+        origin_node={"latitude": origin[0], "longitude": origin_lon},
+        destination_node={"latitude": dest[0], "longitude": dest_lon}
+    )
+    return [(p[0], p[1]) for p in path_dict.get('coordinate_path', [])]
+
+
+def _interpolate_route(
+    path: List[Tuple[float, float]],
+    speed_knots: float,
+    departure: datetime
+) -> List[dict]:
+    """Convert path to waypoints with timestamps. Keeps ALL points for risk assessment."""
+    try:
+        from geopy.distance import great_circle
+    except ImportError:
+        # Proper Haversine fallback for accurate distance at all latitudes
+        import math
+        from collections import namedtuple
+        Distance = namedtuple('Distance', ['km'])
+        def great_circle(p1, p2):
+            lat1, lon1 = math.radians(p1[0]), math.radians(p1[1])
+            lat2, lon2 = math.radians(p2[0]), math.radians(p2[1])
+            dlat = lat2 - lat1
+            dlon = lon2 - lon1
+            a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+            c = 2 * math.asin(math.sqrt(a))
+            return Distance(km=6371 * c)  # Earth radius in km
+
+    speed_kmh = speed_knots * 1.852
+    waypoints = []
+    current_time = departure
+
+    # Add ALL points from scgraph - each is a navigation waypoint
+    # Risk assessment needs every geographic point, not time-filtered ones
+    for i, point in enumerate(path):
+        if i == 0:
+            step = "Origin"
+        elif i == len(path) - 1:
+            step = "Destination"
+        else:
+            step = f"Waypoint {i}"
+
+        # Calculate time to reach this point
+        if i > 0:
+            prev = path[i-1]
+            dist = great_circle(prev, point).km
+            hours = dist / speed_kmh if speed_kmh > 0 else 0
+            current_time += timedelta(hours=hours)
+
+        waypoints.append({
+            "lat": point[0],
+            "lon": point[1],
+            "time": current_time.strftime("%Y-%m-%d %H:%M"),
+            "step": step
+        })
+        
+    return waypoints
+
+
+# ============================================================================
+# TOOL FUNCTION
+# ============================================================================
+
+def calculate_maritime_route(
+    origin_lat: float,
+    origin_lon: float,
+    dest_lat: float,
+    dest_lon: float,
+    month: int,
+    year: int = None,
+    speed_knots: float = 14.0
+) -> str:
+    """
+    Calculates the detailed maritime route waypoints.
+    """
+    if not HAS_ROUTING_DEPS:
+        return "Error: 'scgraph' not installed."
+
+    if not (1 <= month <= 12):
+        return f"Error: month must be 1-12, got {month}."
+
+    try:
+        path = _get_maritime_path((origin_lat, origin_lon), (dest_lat, dest_lon))
+        
+        # Use provided year or calculate based on current date
+        if year is None:
+            now = datetime.now()
+            year = now.year if month >= now.month else now.year + 1
+        departure = datetime(year, month, 15)
+        
+        waypoints = _interpolate_route(path, speed_knots, departure)
+        
+        # Calculate bounding box with buffer for weather data
+        lats = [w['lat'] for w in waypoints]
+        lons = [w['lon'] for w in waypoints]
+        
+        min_lat = max(-90, min(lats) - 5)
+        max_lat = min(90, max(lats) + 5)
+        
+        # Detect dateline crossing: if lon range > 180°, the route crosses -180/+180
+        lon_range = max(lons) - min(lons)
+        if lon_range > 180:
+            # Route crosses dateline - need to recalculate
+            # Split lons into positive and negative, find the gap
+            pos_lons = [l for l in lons if l >= 0]
+            neg_lons = [l for l in lons if l < 0]
+            if pos_lons and neg_lons:
+                # Route goes from ~+179 to ~-179 - use 0-360 system
+                lons_360 = [(l + 360) if l < 0 else l for l in lons]
+                min_lon = max(0, min(lons_360) - 5)
+                max_lon = min(360, max(lons_360) + 5)
+            else:
+                min_lon = max(-180, min(lons) - 5)
+                max_lon = min(180, max(lons) + 5)
+        else:
+            min_lon = max(-180, min(lons) - 5)
+            max_lon = min(180, max(lons) + 5)
+
+        # Format waypoints as Python-ready list (keep original -180/+180 format)
+        waypoint_list = "[\n" + ",\n".join([
+            f"    ({w['lat']:.2f}, {w['lon']:.2f})"
+            for w in waypoints
+        ]) + "\n]"
+
+        # Calculate total distance
+        total_nm = 0
+        try:
+            from geopy.distance import great_circle
+            for i in range(1, len(waypoints)):
+                d = great_circle(
+                    (waypoints[i-1]['lat'], waypoints[i-1]['lon']),
+                    (waypoints[i]['lat'], waypoints[i]['lon'])
+                ).nautical
+                total_nm += d
+        except ImportError:
+            # Haversine fallback for distance calculation
+            import math
+            for i in range(1, len(waypoints)):
+                lat1, lon1 = math.radians(waypoints[i-1]['lat']), math.radians(waypoints[i-1]['lon'])
+                lat2, lon2 = math.radians(waypoints[i]['lat']), math.radians(waypoints[i]['lon'])
+                dlat, dlon = lat2 - lat1, lon2 - lon1
+                a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
+                c = 2 * math.asin(math.sqrt(a))
+                total_nm += 6371 * c / 1.852  # km to nm
+
+        eta_days = total_nm / (speed_knots * 24)
+
+        output = f"""
+================================================================================
+                        MARITIME ROUTE CALCULATION COMPLETE
+================================================================================
+
+ROUTE SUMMARY:
+  Origin:      ({origin_lat:.2f}, {origin_lon:.2f})
+  Destination: ({dest_lat:.2f}, {dest_lon:.2f})
+  Distance:    ~{total_nm:.0f} nautical miles
+  Speed:       {speed_knots} knots
+  ETA:         ~{eta_days:.1f} days
+  Waypoints:   {len(waypoints)} checkpoints
+
+WAYPOINT COORDINATES (for risk analysis):
+{waypoint_list}
+
+DATA REGION (with 5° buffer):
+  Latitude:  [{min_lat:.1f}, {max_lat:.1f}]
+  Longitude: [{min_lon:.1f}, {max_lon:.1f}]
+
+================================================================================
+                        MANDATORY RISK ASSESSMENT PROTOCOL
+================================================================================
+
+STEP 1: DOWNLOAD CLIMATOLOGICAL DATA
+  Call `retrieve_era5_data` with:
+    - variable: 'u10' and 'v10' (10m wind components) for wind speed analysis
+    - query_type: 'spatial'
+    - region bounds: lat=[{min_lat:.1f}, {max_lat:.1f}], lon=[{min_lon:.1f}, {max_lon:.1f}]
+    - dates: Month {month} for LAST 3 YEARS (e.g., {month}/2021, {month}/2022, {month}/2023)
+
+  ⚠️ WARNING: Large bounding boxes can cause OOM/timeout!
+  If (max_lon - min_lon) > 60° or (max_lat - min_lat) > 40°:
+    - Do NOT download spatial data for the whole route at once
+    - Instead, iterate through waypoints and download small chunks
+    - Or sample every Nth waypoint for point-based temporal queries
+
+  WHY 3 YEARS? To build climatological statistics, not just one snapshot.
+
+STEP 2: GET ANALYSIS PROTOCOL
+  Call `get_analysis_guide(topic='maritime_visualization')`
+  
+  Or for full workflow: `get_analysis_guide(topic='maritime_route')`
+
+  This will provide methodology for:
+    - Lagrangian risk assessment (ship vs. stationary climate data)
+    - Threshold definitions (what wind speed is dangerous)
+    - Risk aggregation formulas
+    - Route deviation recommendations
+
+STEP 3: EXECUTE ANALYSIS
+  Use python_repl to:
+    1. Load the downloaded data
+    2. Extract values at each waypoint
+    3. Calculate risk metrics per the methodology
+    4. Generate risk map and report
+
+================================================================================
+"""
+        return output
+
+    except Exception as e:
+        return f"Routing Calculation Failed: {str(e)}"
+
+
+# ============================================================================
+# ARGUMENT SCHEMA
+# ============================================================================
+
+class RouteArgs(BaseModel):
+    origin_lat: float = Field(description="Latitude of origin")
+    origin_lon: float = Field(description="Longitude of origin")
+    dest_lat: float = Field(description="Latitude of destination")
+    dest_lon: float = Field(description="Longitude of destination")
+    month: int = Field(description="Month of travel (1-12)")
+    year: int = Field(default=None, description="Year for analysis. Defaults to upcoming occurrence of month.")
+    speed_knots: float = Field(default=14.0, description="Speed in knots")
+
+
+# ============================================================================
+# LANGCHAIN TOOL
+# ============================================================================
+
+routing_tool = StructuredTool.from_function(
+    func=calculate_maritime_route,
+    name="calculate_maritime_route",
+    description="Calculates a realistic maritime route (avoiding land). Returns a list of time-stamped waypoints. DOES NOT check weather.",
+    args_schema=RouteArgs
+)
+
+--------------------------------------------------------------------------------
+eurus/__init__.py
+code
+"""
+Eurus - ERA5 Climate Analysis Agent
+====================================
+
+A scientific climate analysis platform powered by ERA5 reanalysis data from
+Earthmover's cloud-optimized archive via Icechunk.
+
+Features:
+- ERA5 reanalysis data retrieval (SST, temperature, wind, pressure, etc.)
+- Interactive Python REPL with pre-loaded scientific libraries
+- Maritime route calculation with weather risk assessment
+- Analysis methodology guides for climate science
+- Intelligent caching with persistent memory
+- Predefined geographic regions (El Niño, Atlantic, Pacific, etc.)
+- Full MCP protocol support for Claude and other AI assistants
+
+Example usage as MCP server:
+    # In .mcp.json
+    {
+        "mcpServers": {
+            "era5": {
+                "command": "era5-mcp",
+                "env": {"ARRAYLAKE_API_KEY": "your_key"}
+            }
+        }
+    }
+
+Example usage as Python library:
+    from eurus import retrieve_era5_data, list_available_variables
+    from eurus.tools import get_all_tools
+
+    # Download SST data
+    result = retrieve_era5_data(
+        query_type="temporal",
+        variable_id="sst",
+        start_date="2024-01-01",
+        end_date="2024-01-07",
+        region="california_coast"
+    )
+
+    # Get all tools for agent (only core tools, no science clutter)
+    tools = get_all_tools(enable_routing=True)
+"""
+
+__version__ = "1.1.0"
+__author__ = "Eurus Team"
+
+from eurus.config import (
+    ERA5_VARIABLES,
+    GEOGRAPHIC_REGIONS,
+    AGENT_SYSTEM_PROMPT,
+    get_variable_info,
+    get_short_name,
+    list_available_variables,
+)
+from eurus.retrieval import retrieve_era5_data
+from eurus.memory import MemoryManager, get_memory
+from eurus.tools import get_all_tools
+
+__all__ = [
+    # Version
+    "__version__",
+    # Config
+    "ERA5_VARIABLES",
+    "GEOGRAPHIC_REGIONS",
+    "AGENT_SYSTEM_PROMPT",
+    "get_variable_info",
+    "get_short_name",
+    "list_available_variables",
+    # Retrieval
+    "retrieve_era5_data",
+    # Memory
+    "MemoryManager",
+    "get_memory",
+    # Tools
+    "get_all_tools",
+]
+
+--------------------------------------------------------------------------------
+eurus/config.py
+code
+"""
+ERA5 MCP Configuration
+======================
+
+Centralized configuration including ERA5 variable catalog, geographic regions,
+and runtime settings.
+"""
+
+from __future__ import annotations
+
+import os
+from dataclasses import dataclass, field
+from pathlib import Path
+from typing import Dict, Optional, List
+from datetime import datetime
+
+# =============================================================================
+# PATHS
+# =============================================================================
+
+def get_data_dir() -> Path:
+    """Get the data directory, creating it if necessary."""
+    data_dir = Path(os.environ.get("ERA5_DATA_DIR", Path.cwd() / "data"))
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir
+
+
+def get_plots_dir() -> Path:
+    """Get the plots directory, creating it if necessary."""
+    plots_dir = get_data_dir() / "plots"
+    plots_dir.mkdir(parents=True, exist_ok=True)
+    return plots_dir
+
+
+def get_memory_dir() -> Path:
+    """Get the memory directory, creating it if necessary."""
+    memory_dir = Path(os.environ.get("ERA5_MEMORY_DIR", Path.cwd() / ".memory"))
+    memory_dir.mkdir(parents=True, exist_ok=True)
+    return memory_dir
+
+
+# =============================================================================
+# ERA5 VARIABLE CATALOG
+# =============================================================================
+
+@dataclass(frozen=True)
+class ERA5Variable:
+    """Metadata for an ERA5 variable."""
+
+    short_name: str
+    long_name: str
+    units: str
+    description: str
+    category: str
+    typical_range: tuple[float | None, float | None] = (None, None)
+    colormap: str = "viridis"
+
+    def __str__(self) -> str:
+        return f"{self.short_name}: {self.long_name} ({self.units})"
+
+
+# Comprehensive ERA5 variable mapping — ALL 22 Arraylake variables
+# Source: earthmover-public/era5-surface-aws Icechunk store
+ERA5_VARIABLES: Dict[str, ERA5Variable] = {
+    # ── Ocean ──────────────────────────────────────────────────────────────
+    "sst": ERA5Variable(
+        short_name="sst",
+        long_name="Sea Surface Temperature",
+        units="K",
+        description="Temperature of sea water near the surface",
+        category="ocean",
+        typical_range=(270, 310),
+        colormap="RdYlBu_r"
+    ),
+    # ── Temperature ────────────────────────────────────────────────────────
+    "t2": ERA5Variable(
+        short_name="t2",
+        long_name="2m Temperature",
+        units="K",
+        description="Air temperature at 2 meters above the surface",
+        category="atmosphere",
+        typical_range=(220, 330),
+        colormap="RdYlBu_r"
+    ),
+    "d2": ERA5Variable(
+        short_name="d2",
+        long_name="2m Dewpoint Temperature",
+        units="K",
+        description="Temperature to which air at 2m must cool to reach saturation; indicates humidity",
+        category="atmosphere",
+        typical_range=(220, 310),
+        colormap="RdYlBu_r"
+    ),
+    "skt": ERA5Variable(
+        short_name="skt",
+        long_name="Skin Temperature",
+        units="K",
+        description="Temperature of the Earth's uppermost surface layer (land, ocean, or ice)",
+        category="surface",
+        typical_range=(220, 340),
+        colormap="RdYlBu_r"
+    ),
+    # ── Wind 10 m ──────────────────────────────────────────────────────────
+    "u10": ERA5Variable(
+        short_name="u10",
+        long_name="10m U-Wind Component",
+        units="m/s",
+        description="Eastward component of wind at 10 meters above surface",
+        category="atmosphere",
+        typical_range=(-30, 30),
+        colormap="RdBu_r"
+    ),
+    "v10": ERA5Variable(
+        short_name="v10",
+        long_name="10m V-Wind Component",
+        units="m/s",
+        description="Northward component of wind at 10 meters above surface",
+        category="atmosphere",
+        typical_range=(-30, 30),
+        colormap="RdBu_r"
+    ),
+    # ── Wind 100 m (hub-height for wind energy) ───────────────────────────
+    "u100": ERA5Variable(
+        short_name="u100",
+        long_name="100m U-Wind Component",
+        units="m/s",
+        description="Eastward component of wind at 100 meters above surface (wind-turbine hub height)",
+        category="atmosphere",
+        typical_range=(-40, 40),
+        colormap="RdBu_r"
+    ),
+    "v100": ERA5Variable(
+        short_name="v100",
+        long_name="100m V-Wind Component",
+        units="m/s",
+        description="Northward component of wind at 100 meters above surface (wind-turbine hub height)",
+        category="atmosphere",
+        typical_range=(-40, 40),
+        colormap="RdBu_r"
+    ),
+    # ── Pressure ───────────────────────────────────────────────────────────
+    "sp": ERA5Variable(
+        short_name="sp",
+        long_name="Surface Pressure",
+        units="Pa",
+        description="Pressure at the Earth's surface",
+        category="atmosphere",
+        typical_range=(85000, 108000),
+        colormap="viridis"
+    ),
+    "mslp": ERA5Variable(
+        short_name="mslp",
+        long_name="Mean Sea Level Pressure",
+        units="Pa",
+        description="Atmospheric pressure reduced to mean sea level",
+        category="atmosphere",
+        typical_range=(96000, 105000),
+        colormap="viridis"
+    ),
+    # ── Boundary Layer ─────────────────────────────────────────────────────
+    "blh": ERA5Variable(
+        short_name="blh",
+        long_name="Boundary Layer Height",
+        units="m",
+        description="Height of the planetary boundary layer above ground",
+        category="atmosphere",
+        typical_range=(50, 3000),
+        colormap="viridis"
+    ),
+    "cape": ERA5Variable(
+        short_name="cape",
+        long_name="Convective Available Potential Energy",
+        units="J/kg",
+        description="Instability indicator for convection/thunderstorm potential",
+        category="atmosphere",
+        typical_range=(0, 5000),
+        colormap="YlOrRd"
+    ),
+    # ── Cloud & Precipitation ──────────────────────────────────────────────
+    "tcc": ERA5Variable(
+        short_name="tcc",
+        long_name="Total Cloud Cover",
+        units="fraction (0-1)",
+        description="Fraction of sky covered by clouds",
+        category="atmosphere",
+        typical_range=(0, 1),
+        colormap="gray_r"
+    ),
+    "cp": ERA5Variable(
+        short_name="cp",
+        long_name="Convective Precipitation",
+        units="m",
+        description="Accumulated precipitation from convective processes",
+        category="precipitation",
+        typical_range=(0, 0.1),
+        colormap="Blues"
+    ),
+    "lsp": ERA5Variable(
+        short_name="lsp",
+        long_name="Large-scale Precipitation",
+        units="m",
+        description="Accumulated precipitation from large-scale weather systems",
+        category="precipitation",
+        typical_range=(0, 0.1),
+        colormap="Blues"
+    ),
+    "tp": ERA5Variable(
+        short_name="tp",
+        long_name="Total Precipitation",
+        units="m",
+        description="Total accumulated precipitation (convective + large-scale)",
+        category="precipitation",
+        typical_range=(0, 0.2),
+        colormap="Blues"
+    ),
+    # ── Radiation ──────────────────────────────────────────────────────────
+    "ssr": ERA5Variable(
+        short_name="ssr",
+        long_name="Surface Net Solar Radiation",
+        units="J/m²",
+        description="Net balance of downward minus reflected shortwave radiation at the surface",
+        category="radiation",
+        typical_range=(0, 3e7),
+        colormap="YlOrRd"
+    ),
+    "ssrd": ERA5Variable(
+        short_name="ssrd",
+        long_name="Surface Solar Radiation Downwards",
+        units="J/m²",
+        description="Total incoming shortwave (solar) radiation reaching the surface (direct + diffuse)",
+        category="radiation",
+        typical_range=(0, 3.5e7),
+        colormap="YlOrRd"
+    ),
+    # ── Moisture Columns ───────────────────────────────────────────────────
+    "tcw": ERA5Variable(
+        short_name="tcw",
+        long_name="Total Column Water",
+        units="kg/m²",
+        description="Total water (vapour + liquid + ice) in the atmospheric column",
+        category="atmosphere",
+        typical_range=(0, 80),
+        colormap="Blues"
+    ),
+    "tcwv": ERA5Variable(
+        short_name="tcwv",
+        long_name="Total Column Water Vapour",
+        units="kg/m²",
+        description="Total water vapour in the atmospheric column (precipitable water)",
+        category="atmosphere",
+        typical_range=(0, 70),
+        colormap="Blues"
+    ),
+    # ── Land Surface ───────────────────────────────────────────────────────
+    "sd": ERA5Variable(
+        short_name="sd",
+        long_name="Snow Depth",
+        units="m water equiv.",
+        description="Depth of snow expressed as meters of water equivalent",
+        category="land_surface",
+        typical_range=(0, 2),
+        colormap="Blues"
+    ),
+    "stl1": ERA5Variable(
+        short_name="stl1",
+        long_name="Soil Temperature Level 1",
+        units="K",
+        description="Temperature of the topmost soil layer (0-7 cm depth)",
+        category="land_surface",
+        typical_range=(220, 330),
+        colormap="RdYlBu_r"
+    ),
+    "swvl1": ERA5Variable(
+        short_name="swvl1",
+        long_name="Volumetric Soil Water Layer 1",
+        units="m³/m³",
+        description="Volume fraction of water in the topmost soil layer (0-7 cm depth)",
+        category="land_surface",
+        typical_range=(0, 0.5),
+        colormap="YlGnBu"
+    ),
+}
+
+# Aliases for long variable names → short names
+VARIABLE_ALIASES: Dict[str, str] = {
+    # Ocean
+    "sea_surface_temperature": "sst",
+    # Temperature
+    "2m_temperature": "t2",
+    "temperature": "t2",
+    "2m_dewpoint_temperature": "d2",
+    "dewpoint_temperature": "d2",
+    "dewpoint": "d2",
+    "skin_temperature": "skt",
+    # Wind 10m
+    "10m_u_component_of_wind": "u10",
+    "10m_v_component_of_wind": "v10",
+    # Wind 100m
+    "100m_u_component_of_wind": "u100",
+    "100m_v_component_of_wind": "v100",
+    # Pressure
+    "surface_pressure": "sp",
+    "mean_sea_level_pressure": "mslp",
+    # Boundary layer
+    "boundary_layer_height": "blh",
+    "convective_available_potential_energy": "cape",
+    # Cloud & precipitation
+    "total_cloud_cover": "tcc",
+    "convective_precipitation": "cp",
+    "large_scale_precipitation": "lsp",
+    "total_precipitation": "tp",
+    # Radiation
+    "surface_net_solar_radiation": "ssr",
+    "surface_solar_radiation_downwards": "ssrd",
+    # Moisture columns
+    "total_column_water": "tcw",
+    "total_column_water_vapour": "tcwv",
+    # Land surface
+    "snow_depth": "sd",
+    "soil_temperature": "stl1",
+    "soil_temperature_level_1": "stl1",
+    "soil_moisture": "swvl1",
+    "volumetric_soil_water_layer_1": "swvl1",
+}
+
+
+def get_variable_info(variable_id: str) -> Optional[ERA5Variable]:
+    """Get variable metadata by ID (case-insensitive, supports aliases)."""
+    key = variable_id.lower()
+    # Check aliases first
+    if key in VARIABLE_ALIASES:
+        key = VARIABLE_ALIASES[key]
+    return ERA5_VARIABLES.get(key)
+
+
+def get_short_name(variable_id: str) -> str:
+    """Get the short name for a variable (for dataset access)."""
+    key = variable_id.lower()
+    # Check aliases first
+    if key in VARIABLE_ALIASES:
+        return VARIABLE_ALIASES[key]
+    var_info = ERA5_VARIABLES.get(key)
+    if var_info:
+        return var_info.short_name
+    return key
+
+
+def list_available_variables() -> str:
+    """Return a formatted list of available variables."""
+    seen: set[str] = set()
+    lines = ["Available ERA5 Variables:", "=" * 50]
+
+    for var_id, var_info in ERA5_VARIABLES.items():
+        if var_info.short_name not in seen:
+            seen.add(var_info.short_name)
+            lines.append(
+                f"  {var_info.short_name:8} | {var_info.long_name:30} | {var_info.units}"
+            )
+
+    return "\n".join(lines)
+
+
+def get_all_short_names() -> list[str]:
+    """Get list of all unique short variable names."""
+    return list({v.short_name for v in ERA5_VARIABLES.values()})
+
+
+# =============================================================================
+# GEOGRAPHIC REGIONS (Common oceanographic areas)
+# =============================================================================
+
+@dataclass(frozen=True)
+class GeographicRegion:
+    """A predefined geographic region."""
+
+    name: str
+    min_lat: float
+    max_lat: float
+    min_lon: float
+    max_lon: float
+    description: str = ""
+
+    def to_dict(self) -> dict:
+        return {
+            "min_lat": self.min_lat,
+            "max_lat": self.max_lat,
+            "min_lon": self.min_lon,
+            "max_lon": self.max_lon,
+        }
+
+
+GEOGRAPHIC_REGIONS: Dict[str, GeographicRegion] = {
+    "global": GeographicRegion(
+        "global", -90, 90, 0, 359.75,
+        "Entire globe"
+    ),
+    "north_atlantic": GeographicRegion(
+        "north_atlantic", 0, 65, 280, 360,
+        "North Atlantic Ocean"
+    ),
+    "south_atlantic": GeographicRegion(
+        "south_atlantic", -60, 0, 280, 20,
+        "South Atlantic Ocean"
+    ),
+    "north_pacific": GeographicRegion(
+        "north_pacific", 0, 65, 100, 260,
+        "North Pacific Ocean"
+    ),
+    "south_pacific": GeographicRegion(
+        "south_pacific", -60, 0, 150, 290,
+        "South Pacific Ocean"
+    ),
+    "indian_ocean": GeographicRegion(
+        "indian_ocean", -60, 30, 20, 120,
+        "Indian Ocean"
+    ),
+    "arctic": GeographicRegion(
+        "arctic", 65, 90, 0, 359.75,
+        "Arctic Ocean and surrounding areas"
+    ),
+    "antarctic": GeographicRegion(
+        "antarctic", -90, -60, 0, 359.75,
+        "Antarctic and Southern Ocean"
+    ),
+    "mediterranean": GeographicRegion(
+        "mediterranean", 30, 46, 354, 42,
+        "Mediterranean Sea"
+    ),
+    "gulf_of_mexico": GeographicRegion(
+        "gulf_of_mexico", 18, 31, 262, 282,
+        "Gulf of Mexico"
+    ),
+    "caribbean": GeographicRegion(
+        "caribbean", 8, 28, 255, 295,
+        "Caribbean Sea"
+    ),
+    "california_coast": GeographicRegion(
+        "california_coast", 32, 42, 235, 250,
+        "California coastal waters"
+    ),
+    "east_coast_us": GeographicRegion(
+        "east_coast_us", 25, 45, 280, 295,
+        "US East Coast"
+    ),
+    "europe": GeographicRegion(
+        "europe", 35, 72, 350, 40,
+        "Europe"
+    ),
+    "asia_east": GeographicRegion(
+        "asia_east", 15, 55, 100, 145,
+        "East Asia"
+    ),
+    "australia": GeographicRegion(
+        "australia", -45, -10, 110, 155,
+        "Australia and surrounding waters"
+    ),
+    # El Niño regions
+    "nino34": GeographicRegion(
+        "nino34", -5, 5, 190, 240,
+        "El Niño 3.4 region (central Pacific)"
+    ),
+    "nino3": GeographicRegion(
+        "nino3", -5, 5, 210, 270,
+        "El Niño 3 region (eastern Pacific)"
+    ),
+    "nino4": GeographicRegion(
+        "nino4", -5, 5, 160, 210,
+        "El Niño 4 region (western Pacific)"
+    ),
+    "nino12": GeographicRegion(
+        "nino12", -10, 0, 270, 280,
+        "El Niño 1+2 region (far eastern Pacific)"
+    ),
+}
+
+
+def get_region(name: str) -> Optional[GeographicRegion]:
+    """Get a geographic region by name (case-insensitive)."""
+    return GEOGRAPHIC_REGIONS.get(name.lower())
+
+
+def list_regions() -> str:
+    """Return a formatted list of available regions."""
+    lines = ["Available Geographic Regions:", "=" * 70]
+    for name, region in GEOGRAPHIC_REGIONS.items():
+        lines.append(
+            f"  {name:20} | lat: [{region.min_lat:6.1f}, {region.max_lat:6.1f}] "
+            f"| lon: [{region.min_lon:6.1f}, {region.max_lon:6.1f}]"
+        )
+    return "\n".join(lines)
+
+
+# =============================================================================
+# AGENT CONFIGURATION
+# =============================================================================
+
+@dataclass
+class AgentConfig:
+    """Configuration for the ERA5 Agent."""
+
+    # LLM Settings
+    model_name: str = "gpt-5.2"
+    temperature: float = 0
+    max_tokens: int = 4096
+
+    # Data Settings
+    data_source: str = "earthmover-public/era5-surface-aws"
+    default_query_type: str = "temporal"
+    max_download_size_gb: float = 2.0
+
+    # Retrieval Settings
+    max_retries: int = 3
+    retry_delay: float = 2.0
+
+    # Memory Settings
+    enable_memory: bool = True
+    max_conversation_history: int = 100
+    memory_file: str = "conversation_history.json"
+
+    # Visualization Settings
+    default_figure_size: tuple = (12, 8)
+    default_dpi: int = 150
+    save_plots: bool = True
+    plot_format: str = "png"
+
+    # Kernel Settings
+    kernel_timeout: float = 300.0
+    auto_import_packages: List[str] = field(default_factory=lambda: [
+        "pandas", "numpy", "xarray",
+        "matplotlib", "matplotlib.pyplot", "datetime"
+    ])
+
+    # Logging
+    log_level: str = "INFO"
+    log_to_file: bool = True
+    log_file: str = "era5_agent.log"
+
+
+# Global config instance
+CONFIG = AgentConfig()
+
+# Convenience path variables (for backward compatibility)
+DATA_DIR = get_data_dir()
+PLOTS_DIR = get_plots_dir()
+
+
+# =============================================================================
+# SYSTEM PROMPTS
+# =============================================================================
+
+AGENT_SYSTEM_PROMPT = """You are Eurus, an AI Climate Physicist conducting research for high-impact scientific publications.
+
+## ⚠️ CRITICAL: RESPECT USER INTENT FIRST
+
+**Your PRIMARY directive is to do EXACTLY what the user asks.** 
+
+### TOOL USAGE RULES:
+1. **`python_repl`**: Use for:
+   - Custom analysis (anomalies, trends, statistics)
+   - Visualization with matplotlib
+   - Any computation not directly provided by other tools
+   
+2. **`retrieve_era5_data`**: Use for downloading climate data
+
+3. **`calculate_maritime_route`**: Use for ship routing
+
+4. **`get_analysis_guide`/`get_visualization_guide`**: Use for methodology help
+
+### EXAMPLES:
+- "Get temperature for Berlin and plot it" → Retrieve data, plot RAW temperature time series
+- "Show temperature anomalies for Berlin" → Retrieve data, use python_repl to compute anomalies
+- "Analyze temperature trends" → Retrieve data, use python_repl for trend calculation
+- "Why was 2023 so hot?" → Retrieve data, analyze with python_repl
+
+## YOUR CAPABILITIES
+
+### 1. DATA RETRIEVAL: `retrieve_era5_data`
+Downloads ERA5 reanalysis data from Earthmover's cloud-optimized archive.
+
+**⚠️ STRICT QUERY TYPE RULE (WRONG = 10-100x SLOWER!):**
+┌─────────────────────────────────────────────────────────────────┐
+│ TEMPORAL: (time > 1 day) AND (area < 30°×30°)                   │
+│ SPATIAL:  (time ≤ 1 day) OR  (area ≥ 30°×30°)                   │
+└─────────────────────────────────────────────────────────────────┘
+
+**COORDINATES - USE ROUTE BOUNDING BOX:**
+- Latitude: -90 to 90
+- Longitude: Use values from route tool's bounding box DIRECTLY!
+  - For Europe/Atlantic: Use -10 to 15 (NOT 0 to 360!)
+  - For Pacific crossing dateline: Use 0-360 system
+  
+**⚠️ CRITICAL:** When `calculate_maritime_route` returns a bounding box,
+USE THOSE EXACT VALUES for min/max longitude. Do NOT convert to 0-360!
+
+**DATA AVAILABILITY:** 1975 to present (updated regularly)
+
+**Available Variables (22 total):**
+| Variable | Description | Units | Category |
+|----------|-------------|-------|----------|
+| sst | Sea Surface Temperature | K | Ocean |
+| t2 | 2m Air Temperature | K | Temperature |
+| d2 | 2m Dewpoint Temperature | K | Temperature |
+| skt | Skin Temperature | K | Surface |
+| u10 | 10m U-Wind (Eastward) | m/s | Wind |
+| v10 | 10m V-Wind (Northward) | m/s | Wind |
+| u100 | 100m U-Wind (Eastward) | m/s | Wind |
+| v100 | 100m V-Wind (Northward) | m/s | Wind |
+| sp | Surface Pressure | Pa | Pressure |
+| mslp | Mean Sea Level Pressure | Pa | Pressure |
+| blh | Boundary Layer Height | m | Atmosphere |
+| cape | Convective Available Potential Energy | J/kg | Atmosphere |
+| tcc | Total Cloud Cover | 0-1 | Cloud |
+| cp | Convective Precipitation | m | Precipitation |
+| lsp | Large-scale Precipitation | m | Precipitation |
+| tp | Total Precipitation | m | Precipitation |
+| ssr | Surface Net Solar Radiation | J/m² | Radiation |
+| ssrd | Surface Solar Radiation Downwards | J/m² | Radiation |
+| tcw | Total Column Water | kg/m² | Moisture |
+| tcwv | Total Column Water Vapour | kg/m² | Moisture |
+| sd | Snow Depth | m water eq. | Land |
+| stl1 | Soil Temperature Level 1 | K | Land |
+| swvl1 | Volumetric Soil Water Layer 1 | m³/m³ | Land |
+
+### 2. CUSTOM ANALYSIS: `python_repl`
+Persistent Python kernel for custom analysis and visualization.
+**Pre-loaded:** pandas (pd), numpy (np), xarray (xr), matplotlib.pyplot (plt)
+
+#### What you can do with python_repl:
+- **Anomalies**: `anomaly = data - data.mean('time')`
+- **Z-Scores**: `z = (data - clim.mean('time')) / clim.std('time')`
+- **Trends**: Use `scipy.stats.linregress` or numpy polyfit
+- **Extremes**: Filter data where values exceed thresholds
+- **Visualizations**: Any matplotlib plot saved to PLOTS_DIR
+
+### 4. MEMORY
+Remembers conversation history and previous analyses.
+
+### 5. MARITIME LOGISTICS: `calculate_maritime_route` (Captain Mode)
+Plans shipping routes and assesses climatological hazards.
+
+**WORKFLOW (Mandatory Protocol):**
+1. **ROUTE**: Call `calculate_maritime_route(origin_lat, origin_lon, dest_lat, dest_lon, month)`
+   - Returns waypoints avoiding land via global shipping lane graph
+   - Returns bounding box for data download
+   - Returns STEP-BY-STEP INSTRUCTIONS
+
+2. **DATA**: Download ERA5 climatology for the route region
+   - Variables: `u10`, `v10` (10m wind components) → compute wind speed
+   - NOTE: `swh` (wave height) is NOT available in this dataset!
+   - Period: Target month over LAST 3 YEARS (e.g., July 2021-2023)
+   - Why 3 years? To compute climatological statistics, not just a forecast
+
+3. **METHODOLOGY**: Call `get_visualization_guide(viz_type='maritime_risk_assessment')`
+   - Returns mathematical formulas for Lagrangian risk analysis
+   - Defines hazard thresholds (e.g., wind speed > 15 m/s = DANGER)
+   - Explains how to compute route risk score
+
+4. **ANALYSIS**: Execute in `python_repl` following the methodology:
+   - Extract data at each waypoint (nearest neighbor)
+   - Compute wind speed: `wspd = sqrt(u10² + v10²)`
+   - Compute max/mean/p95 statistics
+   - Identify danger zones (wind > threshold)
+   - Calculate route-level risk score
+
+5. **DECISION**:
+   - If danger zones found → Recommend route deviation
+   - If route safe → Confirm with confidence level
+
+**Key Formulas (from methodology):**
+- Wind speed: `wspd = sqrt(u10² + v10²)`
+- Exceedance probability: `P = count(wspd > threshold) / N_total`
+- Route risk: `max(wspd_i)` for all waypoints i
+
+## SCIENTIFIC PROTOCOL (For Publication-Grade Analysis)
+
+When the user requests scientific analysis:
+
+1. **ANOMALY ANALYSIS**: Report:
+   - Anomalies: "2.5°C above normal"
+   - Z-Scores: "+2.5σ (statistically significant)"
+   - Use `python_repl` to compute anomalies from downloaded data
+
+2. **MECHANISM**: Explain WHY:
+   - Use `python_repl` to look for patterns in the data
+   - Consider atmospheric blocking, ENSO teleconnections, etc.
+
+3. **COMPOUND EVENTS**: Look for dangerous combinations with python_repl:
+   - High heat + Low wind = "Ocean Oven"
+   - Filter data where multiple thresholds are exceeded
+
+4. **STATISTICAL RIGOR**: Always test significance:
+   - Use Z > 2σ for "extreme"
+   - Use p < 0.05 for trends
+   - Report confidence intervals when possible
+
+## VISUALIZATION STANDARDS
+
+**Publication-grade light-theme rcParams are pre-set** — figures get white background,
+black text, grid, 300 DPI on save, and a high-contrast color cycle. Do NOT override unless necessary.
+
+### Mandatory Rules
+1. **DPI**: Saved at 300 (print-quality) — do not lower it
+2. **Figure size**: Default 10×6 for time series, use `figsize=(12, 8)` for map plots
+3. **Unit conversions in labels**: 
+   - Temperature → always show °C (`- 273.15`)
+   - Pressure → show hPa (`/ 100`)
+   - Precipitation → show mm (`* 1000`)
+4. **Colormaps**:
+   - SST/Temperature: `'RdYlBu_r'` or `'coolwarm'`
+   - Wind speed:        `'YlOrRd'`
+   - Anomalies:         `'RdBu_r'` (diverging, centered at zero via `TwoSlopeNorm`)
+   - Precipitation:     `'YlGnBu'`
+   - Cloud cover:       `'Greys'`
+   - **NEVER** use `'jet'`
+5. **Colorbar**: Always include `label=` with units:
+   ```python
+   cbar = plt.colorbar(mesh, label='SST (°C)', shrink=0.8)
+   ```
+6. **Maritime maps**: Call `get_analysis_guide(topic='maritime_visualization')` for the full template
+
+### Available in REPL Namespace
+`pd, np, xr, plt, mcolors, cm, datetime, timedelta, PLOTS_DIR`
+
+
+## RESPONSE STYLE
+- Be precise and scientific
+- Follow user intent exactly
+- Include statistical significance when doing scientific analysis
+- Reference specific dates/locations
+- Acknowledge limitations and uncertainty
+- **NEVER list file paths** of saved plots in your response — plots are displayed automatically in the UI
+- Do NOT say "you can view it here" or similar — the user already sees the plot inline
+"""
+
+
+# =============================================================================
+# UTILITY FUNCTIONS
+# =============================================================================
+
+def format_file_size(size_bytes: int) -> str:
+    """Format file size in human-readable format."""
+    for unit in ['B', 'KB', 'MB', 'GB', 'TB']:
+        if size_bytes < 1024:
+            return f"{size_bytes:.2f} {unit}"
+        size_bytes /= 1024
+    return f"{size_bytes:.2f} PB"
+
+
+def get_timestamp() -> str:
+    """Get current timestamp string."""
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+--------------------------------------------------------------------------------
+eurus/logging_config.py
+code
+"""
+Eurus Logging Configuration
+============================
+Centralized logging setup for both web and CLI modes.
+Logs are saved to PROJECT_ROOT/logs/ with timestamps.
+"""
+
+import os
+import sys
+import logging
+from pathlib import Path
+from datetime import datetime
+
+# Project root
+PROJECT_ROOT = Path(__file__).parent.parent.parent
+
+# Logs directory
+LOGS_DIR = PROJECT_ROOT / "logs"
+LOGS_DIR.mkdir(exist_ok=True)
+
+
+def setup_logging(mode: str = "web", level: int = logging.DEBUG) -> logging.Logger:
+    """
+    Configure logging for Eurus.
+    
+    Args:
+        mode: 'web' or 'cli' - determines log file prefix
+        level: logging level (default: DEBUG for full logs)
+    
+    Returns:
+        Root logger configured with file and console handlers
+    """
+    # Create timestamped log filename
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = LOGS_DIR / f"eurus_{mode}_{timestamp}.log"
+    
+    # Create formatters
+    detailed_formatter = logging.Formatter(
+        fmt="%(asctime)s | %(levelname)-8s | %(name)-30s | %(funcName)-20s | %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+    
+    console_formatter = logging.Formatter(
+        fmt="%(asctime)s | %(levelname)-5s | %(name)s | %(message)s",
+        datefmt="%H:%M:%S"
+    )
+    
+    # Get root logger
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
+    
+    # Clear existing handlers
+    root_logger.handlers.clear()
+    
+    # File handler - FULL DEBUG logs
+    file_handler = logging.FileHandler(log_file, encoding='utf-8')
+    file_handler.setLevel(logging.DEBUG)
+    file_handler.setFormatter(detailed_formatter)
+    root_logger.addHandler(file_handler)
+    
+    # Console handler - respects ERA5_LOG_LEVEL env var (default: INFO)
+    console_level_name = os.environ.get("ERA5_LOG_LEVEL", "INFO").upper()
+    console_level = getattr(logging, console_level_name, logging.INFO)
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(console_level)
+    console_handler.setFormatter(console_formatter)
+    root_logger.addHandler(console_handler)
+    
+    # Log startup info
+    logger = logging.getLogger("eurus.logging")
+    logger.info(f"=" * 80)
+    logger.info(f"EURUS {mode.upper()} STARTING")
+    logger.info(f"Log file: {log_file}")
+    logger.info(f"=" * 80)
+    
+    # Reduce noise from external libraries
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("asyncio").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.access").setLevel(logging.INFO)
+    
+    return root_logger
+
+
+def get_logger(name: str) -> logging.Logger:
+    """Get a logger with the given name."""
+    return logging.getLogger(name)
+
+
+# Cleanup old logs (keep last 20)
+def cleanup_old_logs(keep: int = 20):
+    """Remove old log files, keeping the most recent ones."""
+    try:
+        log_files = sorted(LOGS_DIR.glob("eurus_*.log"), key=os.path.getmtime)
+        if len(log_files) > keep:
+            for old_file in log_files[:-keep]:
+                old_file.unlink()
+    except Exception:
+        pass  # Don't fail on cleanup
+
+--------------------------------------------------------------------------------
+eurus/memory.py
+code
+"""
+ERA5 MCP Memory System
+======================
+
+Session-based memory with smart compression for conversation history.
+Dataset cache persists across sessions, but conversations are fresh each session.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import tiktoken
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional
+
+from eurus.config import get_memory_dir, CONFIG
+
+logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# CONFIGURATION
+# ============================================================================
+
+# Token limits for smart memory management
+MAX_CONTEXT_TOKENS = 8000  # Max tokens to keep in active memory
+COMPRESSION_THRESHOLD = 6000  # Start compressing when we hit this
+SUMMARY_TARGET_TOKENS = 500  # Target tokens for compressed summary
+
+
+# ============================================================================
+# DATA STRUCTURES
+# ============================================================================
+
+@dataclass
+class DatasetRecord:
+    """Record of a downloaded dataset."""
+
+    path: str
+    variable: str
+    query_type: str
+    start_date: str
+    end_date: str
+    lat_bounds: tuple[float, float]
+    lon_bounds: tuple[float, float]
+    file_size_bytes: int
+    download_timestamp: str
+    shape: Optional[tuple[int, ...]] = None
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "DatasetRecord":
+        if isinstance(data.get("lat_bounds"), list):
+            data["lat_bounds"] = tuple(data["lat_bounds"])
+        if isinstance(data.get("lon_bounds"), list):
+            data["lon_bounds"] = tuple(data["lon_bounds"])
+        if isinstance(data.get("shape"), list):
+            data["shape"] = tuple(data["shape"])
+        return cls(**data)
+
+
+@dataclass
+class Message:
+    """A conversation message."""
+
+    role: str
+    content: str
+    timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
+    is_compressed: bool = False  # Flag for compressed summary messages
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Message":
+        valid_keys = {'role', 'content', 'timestamp', 'is_compressed'}
+        filtered = {k: v for k, v in data.items() if k in valid_keys}
+        return cls(**filtered)
+
+    def to_langchain(self) -> dict:
+        """Convert to LangChain message format."""
+        return {"role": self.role, "content": self.content}
+
+
+@dataclass
+class AnalysisRecord:
+    """Record of an analysis performed."""
+
+    description: str
+    code: str
+    output: str
+    timestamp: str
+    datasets_used: List[str] = field(default_factory=list)
+    plots_generated: List[str] = field(default_factory=list)
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "AnalysisRecord":
+        return cls(**data)
+
+
+# ============================================================================
+# TOKEN COUNTER
+# ============================================================================
+
+class TokenCounter:
+    """Efficient token counting using tiktoken."""
+    
+    _encoder = None
+    
+    @classmethod
+    def get_encoder(cls):
+        if cls._encoder is None:
+            try:
+                cls._encoder = tiktoken.encoding_for_model("gpt-4")
+            except Exception:
+                cls._encoder = tiktoken.get_encoding("cl100k_base")
+        return cls._encoder
+    
+    @classmethod
+    def count(cls, text: str) -> int:
+        """Count tokens in text."""
+        try:
+            return len(cls.get_encoder().encode(text))
+        except Exception:
+            # Fallback: rough estimate
+            return len(text) // 4
+
+
+# ============================================================================
+# SMART CONVERSATION MEMORY
+# ============================================================================
+
+class SmartConversationMemory:
+    """
+    Session-based conversation memory with smart compression.
+    
+    Features:
+    - Fresh start each session (no persistent history)
+    - Automatic compression when context gets too long
+    - Preserves recent messages in full, compresses older ones
+    - Token-aware memory management
+    """
+    
+    def __init__(self):
+        self.messages: List[Message] = []
+        self.compressed_summary: Optional[str] = None
+        self._token_count = 0
+        logger.info("SmartConversationMemory initialized (fresh session)")
+    
+    def add_message(self, role: str, content: str) -> Message:
+        """Add a message and check if compression is needed."""
+        msg = Message(role=role, content=content)
+        self.messages.append(msg)
+        
+        # Update token count
+        self._token_count += TokenCounter.count(content)
+        
+        # Check if we need to compress
+        if self._token_count > COMPRESSION_THRESHOLD:
+            self._compress_history()
+        
+        return msg
+    
+    def _compress_history(self) -> None:
+        """Compress older messages into a summary."""
+        if len(self.messages) < 6:
+            return  # Not enough messages to compress
+        
+        # Keep the last 4 messages in full
+        keep_count = 4
+        to_compress = self.messages[:-keep_count]
+        to_keep = self.messages[-keep_count:]
+        
+        if not to_compress:
+            return
+        
+        # Create a concise summary of compressed messages
+        summary_parts = []
+        for msg in to_compress:
+            role = msg.role.upper()
+            # Truncate long content for summary
+            content = msg.content[:200] + "..." if len(msg.content) > 200 else msg.content
+            summary_parts.append(f"[{role}]: {content}")
+        
+        summary = "[Previous conversation summary]\n" + "\n".join(summary_parts)
+        
+        # Truncate summary to target token size
+        while TokenCounter.count(summary) > SUMMARY_TARGET_TOKENS and summary:
+            # Trim from the oldest messages in the summary
+            lines = summary.split('\n')
+            if len(lines) <= 2:
+                break
+            summary = lines[0] + '\n' + '\n'.join(lines[2:])
+
+        summary_msg = Message(
+            role="system",
+            content=summary,
+            is_compressed=True
+        )
+        
+        self.messages = [summary_msg] + to_keep
+        
+        # Recalculate token count
+        self._token_count = sum(
+            TokenCounter.count(m.content) for m in self.messages
+        )
+        
+        logger.info(f"Compressed {len(to_compress)} messages. Current tokens: {self._token_count}")
+    
+    def get_messages(self, n_messages: Optional[int] = None) -> List[Message]:
+        """Get conversation messages."""
+        if n_messages is None:
+            return list(self.messages)
+        return list(self.messages)[-n_messages:]
+    
+    def get_langchain_messages(self, n_messages: Optional[int] = None) -> List[dict]:
+        """Get messages in LangChain format."""
+        messages = self.get_messages(n_messages)
+        return [m.to_langchain() for m in messages]
+    
+    def clear(self) -> None:
+        """Clear all messages."""
+        self.messages.clear()
+        self.compressed_summary = None
+        self._token_count = 0
+        logger.info("Conversation memory cleared")
+    
+    def get_token_count(self) -> int:
+        """Get current token count."""
+        return self._token_count
+
+
+# ============================================================================
+# MEMORY MANAGER
+# ============================================================================
+
+class MemoryManager:
+    """
+    Manages memory for ERA5 MCP.
+
+    Features:
+    - Dataset cache registry (persists across sessions)
+    - Session-based conversation history (fresh each restart)
+    - Smart compression for long conversations
+    - NO persistent conversation history to avoid stale context
+    """
+
+    def __init__(self, memory_dir: Optional[Path] = None, persist_conversations: bool = False):
+        self.memory_dir = memory_dir or get_memory_dir()
+        self.memory_dir.mkdir(parents=True, exist_ok=True)
+        self.persist_conversations = persist_conversations
+
+        # File paths (only datasets persist)
+        self.datasets_file = self.memory_dir / "datasets.json"
+        self.analyses_file = self.memory_dir / "analyses.json"
+
+        # In-memory storage
+        self.datasets: Dict[str, DatasetRecord] = {}
+        self.analyses: List[AnalysisRecord] = []
+        
+        # Session-based conversation memory (FRESH each time!)
+        self.conversation_memory = SmartConversationMemory()
+
+        # Load persistent data (only datasets)
+        self._load_datasets()
+        self._load_analyses()
+
+        logger.info(
+            f"MemoryManager initialized: {len(self.datasets)} datasets, "
+            f"FRESH conversation (session-based)"
+        )
+
+    # ========================================================================
+    # PERSISTENCE (Datasets only)
+    # ========================================================================
+
+    def _load_datasets(self) -> None:
+        """Load dataset registry from disk."""
+        if self.datasets_file.exists():
+            try:
+                with open(self.datasets_file, "r") as f:
+                    data = json.load(f)
+                    for path, record_data in data.items():
+                        self.datasets[path] = DatasetRecord.from_dict(record_data)
+            except Exception as e:
+                logger.warning(f"Failed to load datasets: {e}")
+
+    def _save_datasets(self) -> None:
+        """Save dataset registry to disk."""
+        try:
+            with open(self.datasets_file, "w") as f:
+                json.dump({p: r.to_dict() for p, r in self.datasets.items()}, f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save datasets: {e}")
+
+    def _load_analyses(self) -> None:
+        """Load analysis history from disk."""
+        if self.analyses_file.exists():
+            try:
+                with open(self.analyses_file, "r") as f:
+                    data = json.load(f)
+                    self.analyses = [AnalysisRecord.from_dict(r) for r in data[-20:]]  # Keep last 20
+            except Exception as e:
+                logger.warning(f"Failed to load analyses: {e}")
+
+    def _save_analyses(self) -> None:
+        """Save analysis history to disk."""
+        try:
+            with open(self.analyses_file, "w") as f:
+                json.dump([a.to_dict() for a in self.analyses[-20:]], f, indent=2)
+        except Exception as e:
+            logger.error(f"Failed to save analyses: {e}")
+
+    # ========================================================================
+    # DATASET MANAGEMENT
+    # ========================================================================
+
+    def register_dataset(
+        self,
+        path: str,
+        variable: str,
+        query_type: str,
+        start_date: str,
+        end_date: str,
+        lat_bounds: tuple[float, float],
+        lon_bounds: tuple[float, float],
+        file_size_bytes: int = 0,
+        shape: Optional[tuple[int, ...]] = None,
+    ) -> DatasetRecord:
+        """Register a downloaded dataset."""
+        record = DatasetRecord(
+            path=path,
+            variable=variable,
+            query_type=query_type,
+            start_date=start_date,
+            end_date=end_date,
+            lat_bounds=lat_bounds,
+            lon_bounds=lon_bounds,
+            file_size_bytes=file_size_bytes,
+            download_timestamp=datetime.now().isoformat(),
+            shape=shape,
+        )
+        self.datasets[path] = record
+        self._save_datasets()
+        logger.info(f"Registered dataset: {path}")
+        return record
+
+    def get_dataset(self, path: str) -> Optional[DatasetRecord]:
+        """Get dataset record by path."""
+        return self.datasets.get(path)
+
+    def list_datasets(self) -> str:
+        """Return formatted list of cached datasets."""
+        if not self.datasets:
+            return "No datasets in cache."
+
+        lines = ["Cached Datasets:", "=" * 70]
+        for path, record in self.datasets.items():
+            if os.path.exists(path):
+                size_str = self._format_size(record.file_size_bytes)
+                lines.append(
+                    f"  {record.variable:5} | {record.start_date} to {record.end_date} | "
+                    f"{record.query_type:8} | {size_str:>10}"
+                )
+                lines.append(f"        Path: {path}")
+            else:
+                lines.append(f"  [MISSING] {path}")
+
+        return "\n".join(lines)
+
+    def cleanup_missing_datasets(self) -> int:
+        """Remove records for datasets that no longer exist."""
+        missing = [p for p in self.datasets if not os.path.exists(p)]
+        for path in missing:
+            del self.datasets[path]
+            logger.info(f"Removed missing dataset: {path}")
+        if missing:
+            self._save_datasets()
+        return len(missing)
+
+    # ========================================================================
+    # CONVERSATION MANAGEMENT (Session-based)
+    # ========================================================================
+
+    def add_message(self, role: str, content: str) -> Message:
+        """Add a message to conversation history."""
+        return self.conversation_memory.add_message(role, content)
+
+    def get_conversation_history(self, n_messages: Optional[int] = None) -> List[Message]:
+        """Get recent conversation history."""
+        return self.conversation_memory.get_messages(n_messages)
+
+    def clear_conversation(self) -> None:
+        """Clear conversation history."""
+        self.conversation_memory.clear()
+        logger.info("Conversation history cleared")
+
+    def get_langchain_messages(self, n_messages: Optional[int] = None) -> List[dict]:
+        """Get messages in LangChain format."""
+        return self.conversation_memory.get_langchain_messages(n_messages)
+
+    # Legacy property for compatibility
+    @property
+    def conversations(self) -> List[Message]:
+        return self.conversation_memory.messages
+
+    # ========================================================================
+    # ANALYSIS TRACKING
+    # ========================================================================
+
+    def record_analysis(
+        self,
+        description: str,
+        code: str,
+        output: str,
+        datasets_used: Optional[List[str]] = None,
+        plots_generated: Optional[List[str]] = None,
+    ) -> AnalysisRecord:
+        """Record an analysis for history."""
+        record = AnalysisRecord(
+            description=description,
+            code=code,
+            output=output[:2000],  # Truncate long output
+            timestamp=datetime.now().isoformat(),
+            datasets_used=datasets_used or [],
+            plots_generated=plots_generated or [],
+        )
+        self.analyses.append(record)
+        self._save_analyses()
+        return record
+
+    def get_recent_analyses(self, n: int = 10) -> List[AnalysisRecord]:
+        """Get recent analyses."""
+        return self.analyses[-n:]
+
+    # ========================================================================
+    # CONTEXT SUMMARY
+    # ========================================================================
+
+    def get_context_summary(self) -> str:
+        """Get a summary of current context for the agent."""
+        lines = []
+
+        # Token usage
+        tokens = self.conversation_memory.get_token_count()
+        if tokens > 0:
+            lines.append(f"Session tokens: {tokens}/{MAX_CONTEXT_TOKENS}")
+
+        # Recent conversation (brief)
+        recent = self.get_conversation_history(3)
+        if recent:
+            lines.append("\nRecent in this session:")
+            for msg in recent:
+                preview = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
+                lines.append(f"  [{msg.role}]: {preview}")
+
+        # Available datasets
+        valid_datasets = {p: r for p, r in self.datasets.items() if os.path.exists(p)}
+        if valid_datasets:
+            lines.append(f"\nCached Datasets ({len(valid_datasets)}):")
+            for path, record in list(valid_datasets.items())[:5]:
+                lines.append(f"  - {record.variable}: {record.start_date} to {record.end_date}")
+
+        return "\n".join(lines) if lines else "Fresh session - no context yet."
+
+    # ========================================================================
+    # UTILITIES
+    # ========================================================================
+
+    @staticmethod
+    def _format_size(size_bytes: int) -> str:
+        """Format file size in human-readable format."""
+        for unit in ["B", "KB", "MB", "GB"]:
+            if size_bytes < 1024:
+                return f"{size_bytes:.1f} {unit}"
+            size_bytes /= 1024
+        return f"{size_bytes:.1f} TB"
+
+
+# ============================================================================
+# GLOBAL INSTANCE
+# ============================================================================
+
+_memory_instance: Optional[MemoryManager] = None
+
+
+def get_memory() -> MemoryManager:
+    """Get the global memory manager instance."""
+    global _memory_instance
+    if _memory_instance is None:
+        _memory_instance = MemoryManager()
+    return _memory_instance
+
+
+def reset_memory() -> None:
+    """Reset the global memory instance (new session)."""
+    global _memory_instance
+    _memory_instance = None
+    logger.info("Memory reset - next get_memory() will create fresh session")
+
+--------------------------------------------------------------------------------
+eurus/retrieval.py
+code
+"""
+ERA5 Data Retrieval
+===================
+
+Cloud-optimized data retrieval from Earthmover's ERA5 archive.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import shutil
+import sys
+import threading
+import time
+from datetime import datetime
+from pathlib import Path
+from typing import Optional
+from urllib.request import Request, urlopen
+
+from eurus.config import (
+    CONFIG,
+    get_data_dir,
+    get_region,
+    get_short_name,
+    get_variable_info,
+    list_available_variables,
+)
+from eurus.memory import get_memory
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Progress callback (set by agent_wrapper for WebSocket, or left as None)
+# ---------------------------------------------------------------------------
+_progress_callback = None
+
+
+def set_progress_callback(callback):
+    """Set the callback for download progress updates.
+
+    callback signature: callback(percent: float, eta_seconds: float,
+                                  current_bytes: int, total_bytes: int)
+    """
+    global _progress_callback
+    _progress_callback = callback
+
+
+class _DownloadMonitor:
+    """Background thread that monitors file growth and displays a tqdm bar."""
+
+    def __init__(self, path: str, estimated_bytes: int, poll_interval: float = 0.5):
+        self._path = path
+        self._estimated = max(estimated_bytes, 1)
+        self._interval = poll_interval
+        self._stop = threading.Event()
+        self._thread = None
+        self._bar = None
+
+    def _dir_size(self) -> int:
+        try:
+            return sum(
+                f.stat().st_size
+                for f in Path(self._path).rglob("*")
+                if f.is_file()
+            )
+        except (FileNotFoundError, OSError):
+            return 0
+
+    def _run(self):
+        from tqdm import tqdm
+
+        self._bar = tqdm(
+            total=self._estimated,
+            unit="B",
+            unit_scale=True,
+            unit_divisor=1024,
+            desc="  ↓ ERA5",
+            bar_format="  ↓ ERA5: {percentage:3.0f}%|{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}, {rate_fmt}]",
+            file=sys.stderr,
+            mininterval=0.3,
+        )
+        prev = 0
+        while not self._stop.is_set():
+            current = self._dir_size()
+            delta = current - prev
+            if delta > 0:
+                self._bar.update(delta)
+                prev = current
+
+            pct = min(current / self._estimated * 100, 99.0)
+            elapsed = self._bar.format_dict.get("elapsed", 0)
+            eta = (elapsed / pct * (100 - pct)) if pct > 0 else 0.0
+
+            # WebSocket callback
+            if _progress_callback:
+                try:
+                    _progress_callback(pct, eta, current, self._estimated)
+                except Exception:
+                    pass  # Never crash the download for a UI glitch
+
+            self._stop.wait(self._interval)
+
+    def start(self):
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def stop(self):
+        self._stop.set()
+        if self._thread:
+            self._thread.join(timeout=2)
+        # Finalize bar at 100%
+        if self._bar:
+            total = self._dir_size()
+            self._bar.n = total
+            self._bar.total = max(total, self._estimated)
+            self._bar.refresh()
+            self._bar.close()
+        # Send 100% final update via WebSocket
+        if _progress_callback:
+            try:
+                total = self._dir_size()
+                _progress_callback(100.0, 0.0, total, self._estimated)
+            except Exception:
+                pass
+
+
+def _format_coord(value: float) -> str:
+    """Format coordinates for stable, filename-safe identifiers."""
+    if abs(value) < 0.005:
+        value = 0.0
+    return f"{value:.2f}"
+
+
+def generate_filename(
+    variable: str,
+    query_type: str,
+    start: str,
+    end: str,
+    min_latitude: float,
+    max_latitude: float,
+    min_longitude: float,
+    max_longitude: float,
+    region: Optional[str] = None,
+) -> str:
+    """Generate a descriptive filename for the dataset."""
+    clean_var = variable.replace("_", "")
+    clean_start = start.replace("-", "")
+    clean_end = end.replace("-", "")
+    if region:
+        region_tag = region.lower()
+    else:
+        region_tag = (
+            f"lat{_format_coord(min_latitude)}_{_format_coord(max_latitude)}"
+            f"_lon{_format_coord(min_longitude)}_{_format_coord(max_longitude)}"
+        )
+    return f"era5_{clean_var}_{query_type}_{clean_start}_{clean_end}_{region_tag}.zarr"
+
+
+def format_file_size(size_bytes: int) -> str:
+    """Format file size in human-readable format."""
+    for unit in ["B", "KB", "MB", "GB"]:
+        if size_bytes < 1024:
+            return f"{size_bytes:.2f} {unit}"
+        size_bytes /= 1024
+    return f"{size_bytes:.2f} TB"
+
+
+_aws_region_lock = threading.Lock()
+_aws_region_set = False
+
+
+def _ensure_aws_region(api_key: str, repo_name: Optional[str] = None) -> None:
+    """
+    Populate AWS S3 region/endpoint env vars from Arraylake repo metadata.
+
+    Some environments fail S3 resolution unless region/endpoint are explicit.
+    """
+    global _aws_region_set
+    if _aws_region_set:
+        return  # Only run once per process
+
+    with _aws_region_lock:
+        if _aws_region_set:
+            return  # Double-checked locking
+
+        repo = repo_name or CONFIG.data_source
+        try:
+            req = Request(
+                f"https://api.earthmover.io/repos/{repo}",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            with urlopen(req, timeout=30) as resp:
+                payload = resp.read().decode("utf-8")
+            repo_meta = json.loads(payload)
+        except Exception as exc:
+            logger.debug("Could not auto-detect AWS region from Arraylake metadata: %s", exc)
+            _aws_region_set = True  # Don't retry on failure
+            return
+
+    if not isinstance(repo_meta, dict):
+        return
+
+    bucket = repo_meta.get("bucket")
+    if not isinstance(bucket, dict):
+        return
+
+    extra_cfg = bucket.get("extra_config")
+    if not isinstance(extra_cfg, dict):
+        return
+
+    region_name = extra_cfg.get("region_name")
+    if not isinstance(region_name, str) or not region_name:
+        return
+
+    endpoint = f"https://s3.{region_name}.amazonaws.com"
+    desired_values = {
+        "AWS_REGION": region_name,
+        "AWS_DEFAULT_REGION": region_name,
+        "AWS_ENDPOINT_URL": endpoint,
+        "AWS_S3_ENDPOINT": endpoint,
+    }
+    updated = False
+    for key, value in desired_values.items():
+        if not os.environ.get(key):
+            os.environ[key] = value
+            updated = True
+
+        if updated:
+            logger.info(
+                "Auto-set AWS region/endpoint for Arraylake: region=%s endpoint=%s",
+                region_name,
+                endpoint,
+            )
+        _aws_region_set = True
+
+
+def retrieve_era5_data(
+    query_type: str,
+    variable_id: str,
+    start_date: str,
+    end_date: str,
+    min_latitude: float = -90.0,
+    max_latitude: float = 90.0,
+    min_longitude: float = 0.0,
+    max_longitude: float = 359.75,
+    region: Optional[str] = None,
+) -> str:
+    """
+    Retrieve ERA5 reanalysis data from Earthmover's cloud-optimized archive.
+
+    Args:
+        query_type: Either "temporal" (time series) or "spatial" (maps)
+        variable_id: ERA5 variable name (e.g., "sst", "t2", "u10")
+        start_date: Start date in YYYY-MM-DD format
+        end_date: End date in YYYY-MM-DD format
+        min_latitude: Southern bound (-90 to 90)
+        max_latitude: Northern bound (-90 to 90)
+        min_longitude: Western bound (0 to 360)
+        max_longitude: Eastern bound (0 to 360)
+        region: Optional predefined region name (overrides lat/lon)
+
+    Returns:
+        Success message with file path, or error message.
+
+    Raises:
+        No exceptions raised - errors returned as strings.
+    """
+    memory = get_memory()
+
+    # Get API key
+    api_key = os.environ.get("ARRAYLAKE_API_KEY")
+    if not api_key:
+        return (
+            "Error: ARRAYLAKE_API_KEY not found in environment.\n"
+            "Please set it via environment variable or .env file."
+        )
+    _ensure_aws_region(api_key)
+
+    # Check dependencies
+    try:
+        import icechunk  # noqa: F401
+    except ImportError:
+        return (
+            "Error: The 'icechunk' library is required.\n"
+            "Install with: pip install icechunk"
+        )
+
+    try:
+        import xarray as xr
+    except ImportError:
+        return (
+            "Error: The 'xarray' library is required.\n"
+            "Install with: pip install xarray"
+        )
+
+    # Apply region bounds if specified
+    region_tag = None
+    if region:
+        region_info = get_region(region)
+        if region_info:
+            min_latitude = region_info.min_lat
+            max_latitude = region_info.max_lat
+            min_longitude = region_info.min_lon
+            max_longitude = region_info.max_lon
+            region_tag = region.lower()
+            logger.info(f"Using region '{region}'")
+        else:
+            logger.warning(f"Unknown region '{region}', using provided coordinates")
+
+    # Resolve variable name
+    short_var = get_short_name(variable_id)
+    var_info = get_variable_info(variable_id)
+
+    # Check for future dates
+    req_start = datetime.strptime(start_date, '%Y-%m-%d')
+    if req_start > datetime.now():
+        return (
+            f"Error: Requested start date ({start_date}) is in the future.\n"
+            f"ERA5 is a historical dataset. Please request past dates."
+        )
+
+    # Setup paths
+    output_dir = get_data_dir()
+    filename = generate_filename(
+        short_var,
+        query_type,
+        start_date,
+        end_date,
+        min_latitude,
+        max_latitude,
+        min_longitude,
+        max_longitude,
+        region_tag,
+    )
+    local_path = str(output_dir / filename)
+
+    # Check cache first
+    if os.path.exists(local_path):
+        existing = memory.get_dataset(local_path)
+        if existing:
+            logger.info(f"Cache hit: {local_path}")
+            var_name = f"{short_var} ({var_info.long_name})" if var_info else short_var
+            return (
+                f"CACHE HIT - Data already downloaded\n"
+                f"  Variable: {var_name}\n"
+                f"  Period: {existing.start_date} to {existing.end_date}\n"
+                f"  Path: {local_path}\n\n"
+                f"Load with: ds = xr.open_dataset('{local_path}', engine='zarr')"
+            )
+        else:
+            # File exists but not registered - register it
+            try:
+                file_size = sum(f.stat().st_size for f in Path(local_path).rglob("*") if f.is_file())
+                memory.register_dataset(
+                    path=local_path,
+                    variable=short_var,
+                    query_type=query_type,
+                    start_date=start_date,
+                    end_date=end_date,
+                    lat_bounds=(min_latitude, max_latitude),
+                    lon_bounds=(min_longitude, max_longitude),
+                    file_size_bytes=file_size,
+                )
+            except Exception as e:
+                logger.warning(f"Could not register existing dataset: {e}")
+
+            return (
+                f"CACHE HIT - Found existing data\n"
+                f"  Variable: {short_var}\n"
+                f"  Path: {local_path}\n\n"
+                f"Load with: ds = xr.open_dataset('{local_path}', engine='zarr')"
+            )
+
+    # Download with retry logic
+    for attempt in range(CONFIG.max_retries):
+        try:
+            from arraylake import Client
+
+            logger.info(f"Connecting to Earthmover (attempt {attempt + 1})...")
+
+            client = Client(token=api_key)
+            repo = client.get_repo(CONFIG.data_source)
+            session = repo.readonly_session("main")
+
+            logger.info(f"Opening {query_type} dataset...")
+            ds = xr.open_dataset(
+                session.store,
+                engine="zarr",
+                consolidated=False,
+                zarr_format=3,
+                chunks=None,
+                group=query_type,
+            )
+
+            # Validate variable exists
+            if short_var not in ds:
+                available = list(ds.data_vars)
+                return (
+                    f"Error: Variable '{short_var}' not found in dataset.\n"
+                    f"Available variables: {', '.join(available)}\n\n"
+                    f"Variable reference:\n{list_available_variables()}"
+                )
+
+            # ERA5 latitude is stored 90 -> -90 (descending)
+            lat_slice = slice(max_latitude, min_latitude)
+
+            # Handle longitude - ERA5 uses 0-360 but we accept -180 to 180
+            # CRITICAL: If coordinates are in Europe (-10 to 30), we need to 
+            # convert to 0-360 for ERA5's coordinate system
+            
+            # Special case: Full world range (-180 to 180)
+            # Both become 180 after % 360, which creates empty slice!
+            if min_longitude == -180 and max_longitude == 180:
+                req_min = 0.0
+                req_max = 360.0
+            elif min_longitude > max_longitude and min_longitude >= 0 and max_longitude >= 0:
+                # Already in 0-360 format but wraps around 0° (e.g., Mediterranean: 354 to 42)
+                # This comes from predefined regions — go directly to two-slice logic
+                req_min = min_longitude
+                req_max = max_longitude
+            elif min_longitude < 0:
+                # Convert -180/+180 to 0-360 for ERA5
+                # e.g., -0.9 becomes 359.1
+                req_min = min_longitude % 360
+                req_max = max_longitude if max_longitude >= 0 else max_longitude % 360
+            else:
+                req_min = min_longitude
+                req_max = max_longitude if max_longitude >= 0 else max_longitude % 360
+            
+            # Now handle the actual slicing
+            # If min > max after conversion, it means we span the prime meridian (0°)
+            # e.g., req_min=359.1 (was -0.9) and req_max=25.9 means we need 359.1->360 + 0->25.9
+            if req_min > req_max:
+                # Crosses prime meridian in ERA5's 0-360 system
+                # We need to get two slices and concatenate
+                logger.info(f"Region spans prime meridian: {req_min:.1f}° to {req_max:.1f}° (ERA5 coords)")
+                
+                # Get western portion (from req_min to 360)
+                west_slice = slice(req_min, 360.0)
+                # Get eastern portion (from 0 to req_max)
+                east_slice = slice(0.0, req_max)
+                
+                # Subset both portions
+                logger.info("Subsetting data (two-part: west + east of prime meridian)...")
+                subset_west = ds[short_var].sel(
+                    time=slice(start_date, end_date),
+                    latitude=lat_slice,
+                    longitude=west_slice,
+                )
+                subset_east = ds[short_var].sel(
+                    time=slice(start_date, end_date),
+                    latitude=lat_slice,
+                    longitude=east_slice,
+                )
+                
+                # Convert western longitudes from 360+ to negative (for -180/+180 output)
+                # e.g., 359.1 -> -0.9
+                subset_west = subset_west.assign_coords(
+                    longitude=subset_west.longitude - 360
+                )
+                
+                # Concatenate along longitude
+                subset = xr.concat([subset_west, subset_east], dim='longitude')
+            else:
+                # Normal case - no prime meridian crossing
+                lon_slice = slice(req_min, req_max)
+
+                # Subset the data
+                logger.info("Subsetting data...")
+                subset = ds[short_var].sel(
+                    time=slice(start_date, end_date),
+                    latitude=lat_slice,
+                    longitude=lon_slice,
+                )
+
+            # Convert to dataset
+            ds_out = subset.to_dataset(name=short_var)
+
+            # Check for empty time dimension (no data in requested range)
+            if ds_out.dims.get('time', 0) == 0:
+                # Get actual data availability
+                time_max = ds['time'].max().values
+                import numpy as np
+                last_available = str(np.datetime_as_string(time_max, unit='D'))
+                return (
+                    f"Error: No data available for the requested time range.\n"
+                    f"Requested: {start_date} to {end_date}\n"
+                    f"ERA5 data on Arraylake is available until {last_available}.\n\n"
+                    f"Please request dates up to {last_available}."
+                )
+
+            # Check for empty data (all NaNs) — only check 1st timestep to avoid OOM
+            if ds_out[short_var].isel(time=0).isnull().all().compute():
+                 return (
+                    f"Error: The downloaded data for '{short_var}' is entirely empty (NaNs).\n"
+                    f"Possible causes:\n"
+                    f"1. The requested date/region has no data (e.g., SST over land).\n"
+                    f"2. The request is too recent (ERA5T has a 5-day delay).\n"
+                    f"3. Region bounds might be invalid or cross the prime meridian incorrectly."
+                )
+
+            # Size guard — prevent downloading datasets larger than the configured limit
+            estimated_gb = ds_out.nbytes / (1024 ** 3)
+            if estimated_gb > CONFIG.max_download_size_gb:
+                return (
+                    f"Error: Estimated download size ({estimated_gb:.1f} GB) exceeds the "
+                    f"{CONFIG.max_download_size_gb} GB limit.\n"
+                    f"Try narrowing the time range or spatial area."
+                )
+
+            # Clear encoding for clean serialization
+            for var in ds_out.variables:
+                ds_out[var].encoding = {}
+
+            # Add metadata
+            ds_out.attrs["source"] = "ERA5 Reanalysis via Earthmover Arraylake"
+            ds_out.attrs["download_date"] = datetime.now().isoformat()
+            ds_out.attrs["query_type"] = query_type
+            if var_info:
+                ds_out[short_var].attrs["long_name"] = var_info.long_name
+                ds_out[short_var].attrs["units"] = var_info.units
+
+            # Clean up existing file
+            if os.path.exists(local_path):
+                shutil.rmtree(local_path)
+
+            # Save to Zarr with progress monitoring
+            logger.info(f"Saving to {local_path}...")
+            estimated_bytes = int(ds_out.nbytes)
+            monitor = _DownloadMonitor(local_path, estimated_bytes)
+            start_time = time.time()
+            monitor.start()
+            try:
+                ds_out.to_zarr(local_path, mode="w", consolidated=True, compute=True)
+            finally:
+                monitor.stop()
+            download_time = time.time() - start_time
+
+            # Get actual file size
+            file_size = sum(f.stat().st_size for f in Path(local_path).rglob("*") if f.is_file())
+            shape = tuple(ds_out[short_var].shape)
+
+            # Register in memory
+            memory.register_dataset(
+                path=local_path,
+                variable=short_var,
+                query_type=query_type,
+                start_date=start_date,
+                end_date=end_date,
+                lat_bounds=(min_latitude, max_latitude),
+                lon_bounds=(min_longitude, max_longitude),
+                file_size_bytes=file_size,
+                shape=shape,
+            )
+
+            # Build success message
+            result = f"SUCCESS - Data downloaded\n{'='*50}\n  Variable: {short_var}"
+            if var_info:
+                result += f" ({var_info.long_name})"
+            result += (
+                f"\n  Units: {var_info.units if var_info else 'Unknown'}\n"
+                f"  Period: {start_date} to {end_date}\n"
+                f"  Shape: {shape}\n"
+                f"  Size: {format_file_size(file_size)}\n"
+                f"  Time: {download_time:.1f}s\n"
+                f"  Path: {local_path}\n"
+                f"{'='*50}\n\n"
+                f"Load with:\n"
+                f"  ds = xr.open_dataset('{local_path}', engine='zarr')"
+            )
+            return result
+
+        except Exception as e:
+            error_msg = str(e)
+            logger.error(f"Attempt {attempt + 1} failed: {error_msg}")
+
+            # Clean up partial download
+            if os.path.exists(local_path):
+                shutil.rmtree(local_path, ignore_errors=True)
+
+            if attempt < CONFIG.max_retries - 1:
+                wait_time = CONFIG.retry_delay * (2**attempt)
+                logger.info(f"Retrying in {wait_time:.1f}s...")
+                time.sleep(wait_time)
+            else:
+                return (
+                    f"Error: Failed after {CONFIG.max_retries} attempts.\n"
+                    f"Last error: {error_msg}\n\n"
+                    f"Troubleshooting:\n"
+                    f"1. Check your ARRAYLAKE_API_KEY\n"
+                    f"2. Verify internet connection\n"
+                    f"3. Try a smaller date range or region\n"
+                    f"4. Check if variable '{short_var}' is available"
+                )
+
+    return "Error: Unexpected failure in retrieval logic."
+
+--------------------------------------------------------------------------------
+eurus/server.py
+code
+#!/usr/bin/env python3
+"""
+ERA5 MCP Server
+===============
+
+Model Context Protocol server for ERA5 climate data retrieval.
+
+Usage:
+    eurus-mcp                          # If installed as package
+    python -m eurus.server         # Direct execution
+
+Configuration via environment variables:
+    ARRAYLAKE_API_KEY    - Required for data access
+    ERA5_DATA_DIR        - Data storage directory (default: ./data)
+    ERA5_MEMORY_DIR      - Memory storage directory (default: ./.memory)
+    ERA5_MAX_RETRIES     - Download retry attempts (default: 3)
+    ERA5_LOG_LEVEL       - Logging level (default: INFO)
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+import os
+import sys
+from typing import Any
+
+from dotenv import load_dotenv
+
+# Load environment variables early
+load_dotenv()
+
+# Configure logging
+log_level = os.environ.get("ERA5_LOG_LEVEL", "INFO").upper()
+logging.basicConfig(
+    level=getattr(logging, log_level),
+    format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    datefmt="%H:%M:%S",
+)
+logger = logging.getLogger(__name__)
+
+# Import MCP components
+try:
+    from mcp.server import Server
+    from mcp.server.stdio import stdio_server
+    from mcp.types import (
+        CallToolResult,
+        TextContent,
+        Tool,
+    )
+except ImportError:
+    logger.error("MCP library not found. Install with: pip install mcp")
+    sys.exit(1)
+
+# Import ERA5 components
+from eurus.config import (
+    list_available_variables,
+)
+from eurus.memory import get_memory
+from eurus.tools.era5 import retrieve_era5_data, ERA5RetrievalArgs
+
+# Import Maritime Routing tool
+from eurus.tools.routing import (
+    calculate_maritime_route,
+    RouteArgs,
+    HAS_ROUTING_DEPS,
+)
+
+# Create MCP server
+server = Server("era5-climate-data")
+
+# Alias for compatibility
+app = server
+
+
+# ============================================================================
+# TOOL DEFINITIONS
+# ============================================================================
+
+@server.list_tools()
+async def list_tools() -> list[Tool]:
+    """List available MCP tools."""
+    tools = [
+        Tool(
+            name="retrieve_era5_data",
+            description=(
+                "Retrieve ERA5 climate reanalysis data from Earthmover's cloud archive.\n\n"
+                "⚠️ QUERY TYPE is AUTO-DETECTED based on time/area:\n"
+                "- 'temporal': time > 1 day AND region < 30°×30° (time series, small area)\n"
+                "- 'spatial': time ≤ 1 day OR region ≥ 30°×30° (maps, snapshots, large area)\n\n"
+                "VARIABLES: sst, t2, u10, v10, mslp, tcc, tp\n"
+                "NOTE: swh (waves) is NOT available in this dataset!\n\n"
+                "COORDINATES: Always specify lat/lon bounds explicitly.\n"
+                "Longitude: Use 0-360 format (e.g., -74°W = 286°E)\n\n"
+                "Returns file path. Load: xr.open_dataset('PATH', engine='zarr')"
+            ),
+            inputSchema=ERA5RetrievalArgs.model_json_schema()
+        ),
+        Tool(
+            name="list_era5_variables",
+            description=(
+                "List all available ERA5 variables with their descriptions, units, "
+                "and short names for use with retrieve_era5_data."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False
+            }
+        ),
+        Tool(
+            name="list_cached_datasets",
+            description=(
+                "List all ERA5 datasets that have been downloaded and cached locally. "
+                "Shows variable, date range, file path, and size."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "additionalProperties": False
+            }
+        ),
+    ]
+
+    # ========== MARITIME ROUTING TOOL (if dependencies available) ==========
+    if HAS_ROUTING_DEPS:
+        tools.append(
+            Tool(
+                name="calculate_maritime_route",
+                description=(
+                    "Calculate a realistic maritime shipping route between two ports. "
+                    "Uses global shipping lane graph to avoid land and find optimal path.\n\n"
+                    "RETURNS: Waypoint coordinates, bounding box, and INSTRUCTIONS for "
+                    "climatological risk assessment protocol.\n\n"
+                    "DOES NOT: Check weather itself. The Agent must follow the returned "
+                    "protocol to assess route safety using ERA5 data.\n\n"
+                    "WORKFLOW:\n"
+                    "1. Call this tool → get waypoints + instructions\n"
+                    "2. Download ERA5 wind data (u10, v10) for the region\n"
+                    "3. Call get_visualization_guide(viz_type='maritime_risk_assessment')\n"
+                    "4. Execute analysis in python_repl"
+                ),
+                inputSchema=RouteArgs.model_json_schema()
+            )
+        )
+
+    return tools
+
+
+# ============================================================================
+# TOOL HANDLERS
+# ============================================================================
+
+@server.call_tool()
+async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
+    """Handle tool calls."""
+
+    try:
+        if name == "retrieve_era5_data":
+            # Run synchronous function in thread pool (query_type auto-detected)
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: retrieve_era5_data(
+                    variable_id=arguments["variable_id"],
+                    start_date=arguments["start_date"],
+                    end_date=arguments["end_date"],
+                    min_latitude=arguments["min_latitude"],
+                    max_latitude=arguments["max_latitude"],
+                    min_longitude=arguments["min_longitude"],
+                    max_longitude=arguments["max_longitude"],
+                )
+            )
+            return CallToolResult(content=[TextContent(type="text", text=result)])
+
+        elif name == "list_era5_variables":
+            result = list_available_variables()
+            return CallToolResult(content=[TextContent(type="text", text=result)])
+
+        elif name == "list_cached_datasets":
+            memory = get_memory()
+            result = memory.list_datasets()
+            return CallToolResult(content=[TextContent(type="text", text=result)])
+
+        # ========== MARITIME ROUTING HANDLER ==========
+        elif name == "calculate_maritime_route":
+            if not HAS_ROUTING_DEPS:
+                return CallToolResult(
+                    content=[TextContent(
+                        type="text",
+                        text="Error: Maritime routing dependencies not installed.\n"
+                             "Install with: pip install scgraph geopy"
+                    )],
+                    isError=True
+                )
+            result = await asyncio.get_event_loop().run_in_executor(
+                None,
+                lambda: calculate_maritime_route(
+                    origin_lat=arguments["origin_lat"],
+                    origin_lon=arguments["origin_lon"],
+                    dest_lat=arguments["dest_lat"],
+                    dest_lon=arguments["dest_lon"],
+                    month=arguments["month"],
+                    year=arguments.get("year"),
+                    speed_knots=arguments.get("speed_knots", 14.0)
+                )
+            )
+            return CallToolResult(content=[TextContent(type="text", text=result)])
+
+        else:
+            return CallToolResult(
+                content=[TextContent(type="text", text=f"Unknown tool: {name}")],
+                isError=True
+            )
+
+    except Exception as e:
+        logger.exception(f"Error executing tool {name}")
+        return CallToolResult(
+            content=[TextContent(type="text", text=f"Error: {str(e)}")],
+            isError=True
+        )
+
+
+# ============================================================================
+# SERVER STARTUP
+# ============================================================================
+
+async def run_server() -> None:
+    """Run the MCP server using stdio transport."""
+    logger.info("Starting ERA5 MCP Server...")
+
+    # Check for API key
+    if not os.environ.get("ARRAYLAKE_API_KEY"):
+        logger.warning(
+            "ARRAYLAKE_API_KEY not set. Data retrieval will fail. "
+            "Set it via environment variable or .env file."
+        )
+
+    async with stdio_server() as (read_stream, write_stream):
+        await server.run(
+            read_stream,
+            write_stream,
+            server.create_initialization_options()
+        )
+
+
+def main() -> None:
+    """Main entry point."""
+    try:
+        asyncio.run(run_server())
+    except KeyboardInterrupt:
+        logger.info("Server shutdown requested")
+    except Exception as e:
+        logger.exception(f"Server error: {e}")
+        sys.exit(1)
+
+
+if __name__ == "__main__":
+    main()
+
+--------------------------------------------------------------------------------

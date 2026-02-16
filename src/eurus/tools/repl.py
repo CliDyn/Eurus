@@ -197,8 +197,25 @@ while True:
                     if not output.strip():
                         output = repr(result) if result is not None else "(No output)"
                 except SyntaxError:
-                    exec(code, exec_globals)
-                    output = stdout_capture.getvalue()
+                    # Jupyter-style: auto-print last expression in multi-line code
+                    import ast as _ast
+                    try:
+                        tree = _ast.parse(code)
+                        if tree.body and isinstance(tree.body[-1], _ast.Expr):
+                            # Separate the last expression from preceding stmts
+                            last_expr_node = tree.body.pop()
+                            if tree.body:
+                                exec(compile(_ast.Module(body=tree.body, type_ignores=[]), "<repl>", "exec"), exec_globals)
+                            result = eval(compile(_ast.Expression(body=last_expr_node.value), "<repl>", "eval"), exec_globals)
+                            output = stdout_capture.getvalue()
+                            if result is not None:
+                                output += repr(result) if not output.strip() else "\n" + repr(result)
+                        else:
+                            exec(code, exec_globals)
+                            output = stdout_capture.getvalue()
+                    except SyntaxError:
+                        exec(code, exec_globals)
+                        output = stdout_capture.getvalue()
                     if not output.strip():
                         output = "(Executed successfully. Use print() to see results.)"
 
@@ -379,6 +396,19 @@ class PersistentREPL:
                 pass
             self._temp_script = None
 
+    def _update_plots_dir(self, plots_dir: str):
+        """Update the PLOTS_DIR used by the subprocess."""
+        if self._process and self._process.poll() is None:
+            try:
+                # Send a command to update the plots directory in the subprocess
+                cmd = f"import os; os.environ['EURUS_PLOTS_DIR'] = {plots_dir!r}; PLOTS_DIR = {plots_dir!r}\n"
+                self._process.stdin.write(cmd)
+                self._process.stdin.flush()
+                # Clear the response
+                self._read_response(timeout=2)
+            except Exception as e:
+                logger.warning("Failed to update plots_dir in subprocess: %s", e)
+
     def close(self):
         """Gracefully shutdown the subprocess."""
         if self._process and self._process.poll() is None:
@@ -419,13 +449,20 @@ class PythonREPLTool(BaseTool):
     _repl: Optional[PersistentREPL] = None
     _plot_callback: Optional[Callable] = None  # For web interface
     _displayed_plots: set = set()
+    _plots_dir: Optional[str] = None  # Session-specific plot directory
 
-    def __init__(self, working_dir: str = ".", **kwargs):
+    def __init__(self, working_dir: str = ".", plots_dir: Optional[str] = None, **kwargs):
         super().__init__(**kwargs)
         self.working_dir = working_dir
         self._plot_callback = None
         self._displayed_plots = set()
+        self._plots_dir = plots_dir or str(PLOTS_DIR)
+        # Ensure the plots directory exists
+        Path(self._plots_dir).mkdir(parents=True, exist_ok=True)
         self._repl = PersistentREPL(working_dir=working_dir)
+        # Override the subprocess PLOTS_DIR env var to use session-specific dir
+        if plots_dir:
+            self._repl._update_plots_dir(plots_dir)
 
     def set_plot_callback(self, callback: Callable):
         """Set callback for plot capture (used by web interface)."""
@@ -481,14 +518,14 @@ class PythonREPLTool(BaseTool):
 
     def _run(self, code: str) -> str:
         """Execute the python code in the subprocess and return the output."""
-        from eurus.config import PLOTS_DIR
+        plots_dir = self._plots_dir or str(PLOTS_DIR)
 
         # Snapshot plots directory BEFORE execution
         image_exts = {'.png', '.jpg', '.jpeg', '.svg', '.pdf', '.gif', '.webp'}
         try:
             before_files = {
-                f: os.path.getmtime(os.path.join(PLOTS_DIR, f))
-                for f in os.listdir(PLOTS_DIR)
+                f: os.path.getmtime(os.path.join(plots_dir, f))
+                for f in os.listdir(plots_dir)
                 if os.path.splitext(f)[1].lower() in image_exts
             }
         except FileNotFoundError:
@@ -500,8 +537,8 @@ class PythonREPLTool(BaseTool):
         # Detect NEW plot files by comparing directory snapshots
         try:
             after_files = {
-                f: os.path.getmtime(os.path.join(PLOTS_DIR, f))
-                for f in os.listdir(PLOTS_DIR)
+                f: os.path.getmtime(os.path.join(plots_dir, f))
+                for f in os.listdir(plots_dir)
                 if os.path.splitext(f)[1].lower() in image_exts
             }
         except FileNotFoundError:
@@ -509,7 +546,7 @@ class PythonREPLTool(BaseTool):
 
         new_files = []
         for fname, mtime in after_files.items():
-            full_path = os.path.join(PLOTS_DIR, fname)
+            full_path = os.path.join(plots_dir, fname)
             if fname not in before_files or mtime > before_files[fname]:
                 if full_path not in self._displayed_plots:
                     new_files.append(full_path)

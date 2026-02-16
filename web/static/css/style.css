@@ -320,11 +320,23 @@ main {
 
 .message-header {
     display: flex;
-    justify-content: space-between;
+    align-items: center;
+    gap: 0.375rem;
     margin-bottom: 0.375rem;
     font-size: 0.75rem;
     color: var(--text-secondary);
 }
+
+.avatar-icon {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+
+
+
 
 .message-role {
     font-weight: 600;

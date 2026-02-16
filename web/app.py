@@ -45,10 +45,8 @@ async def lifespan(app: FastAPI):
     logger.info(f"Static files: {STATIC_DIR}")
     logger.info(f"Plots directory: {PLOTS_DIR}")
 
-    # Initialize the global agent session
-    from web.agent_wrapper import get_agent_session
-    session = get_agent_session()
-    logger.info("Agent session initialized")
+    # Sessions are created per-connection in websocket.py
+    logger.info("Ready to accept connections")
 
     yield
 

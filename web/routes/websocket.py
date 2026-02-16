@@ -64,6 +64,14 @@ async def websocket_chat(websocket: WebSocket):
 
             logger.info(f"[{connection_id[:8]}] Received: {message[:100]}...")
 
+            # Handle /clear command — clear session memory + UI
+            if message.strip() == "/clear":
+                session = get_session(connection_id)
+                if session:
+                    session.clear_messages()
+                await manager.send_json(websocket, {"type": "clear"})
+                continue
+
             # Send thinking indicator
             await manager.send_json(websocket, {"type": "thinking"})
 

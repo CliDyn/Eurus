@@ -13,7 +13,7 @@ import os
 import shutil
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 from urllib.request import Request, urlopen
@@ -218,12 +218,12 @@ def retrieve_era5_data(
     short_var = get_short_name(variable_id)
     var_info = get_variable_info(variable_id)
 
-    # Check for future dates
+    # Check for future / too-recent dates (ERA5T has a ~5-day processing lag)
     req_start = datetime.strptime(start_date, '%Y-%m-%d')
-    if req_start > datetime.now():
+    if req_start > datetime.now() - timedelta(days=5):
         return (
-            f"Error: Requested start date ({start_date}) is in the future.\n"
-            f"ERA5 is a historical dataset. Please request past dates."
+            f"Error: Requested start date ({start_date}) is too recent or in the future.\n"
+            f"ERA5 data has a ~5-day processing lag. Please request dates at least 5 days ago."
         )
 
     # Setup paths
@@ -396,8 +396,10 @@ def retrieve_era5_data(
                     f"Please request dates up to {last_available}."
                 )
 
-            # Check for empty data (all NaNs) — only check 1st timestep to avoid OOM
-            if ds_out[short_var].isel(time=0).isnull().all().compute():
+            # Check for empty data (all NaNs) — only check 1st timestep
+            # Guard: skip the check for very large spatial slices to prevent OOM
+            first_step = ds_out[short_var].isel(time=0)
+            if first_step.size < 500_000 and first_step.isnull().all().compute():
                  return (
                     f"Error: The downloaded data for '{short_var}' is entirely empty (NaNs).\n"
                     f"Possible causes:\n"

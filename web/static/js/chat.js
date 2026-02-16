@@ -162,7 +162,7 @@ class EurusChat {
         modal.innerHTML = `
             <div class="image-modal-backdrop"></div>
             <div class="image-modal-content">
-                <img src="" alt="Enlarged plot">
+                <img alt="Enlarged plot">
                 <div class="image-modal-actions">
                     <button class="download-btn">Download</button>
                     <button class="close-btn">Close</button>
@@ -285,6 +285,7 @@ class EurusChat {
                 this.updateStatusIndicator(data.content);
                 break;
 
+
             case 'chunk':
                 this.appendToAssistantMessage(data.content);
                 break;
@@ -375,6 +376,7 @@ class EurusChat {
             this.currentAssistantMessage.className = 'message assistant-message';
             this.currentAssistantMessage.innerHTML = `
                 <div class="message-header">
+                    <img src="/static/favicon.jpeg" class="avatar-icon" alt="">
                     <span class="message-role">Eurus</span>
                 </div>
                 <div class="message-content markdown-content"></div>
@@ -568,11 +570,17 @@ class EurusChat {
     async clearChat() {
         if (!confirm('Clear conversation?')) return;
 
-        try {
-            const response = await fetch('/api/conversation', { method: 'DELETE' });
-            if (response.ok) this.clearMessagesUI();
-        } catch (error) {
-            console.error('Error clearing:', error);
+        // Send clear command through WebSocket so the agent session memory is also cleared
+        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+            this.ws.send(JSON.stringify({ message: '/clear' }));
+        } else {
+            // Fallback to REST if WS not available
+            try {
+                const response = await fetch('/api/conversation', { method: 'DELETE' });
+                if (response.ok) this.clearMessagesUI();
+            } catch (error) {
+                console.error('Error clearing:', error);
+            }
         }
     }
 

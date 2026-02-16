@@ -76,7 +76,7 @@ def _interpolate_route(
             dlat = lat2 - lat1
             dlon = lon2 - lon1
             a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
-            c = 2 * math.asin(math.sqrt(a))
+            c = 2 * math.asin(math.sqrt(min(1.0, a)))
             return Distance(km=6371 * c)  # Earth radius in km
 
     speed_kmh = speed_knots * 1.852
@@ -193,7 +193,7 @@ def calculate_maritime_route(
                 lat2, lon2 = math.radians(waypoints[i]['lat']), math.radians(waypoints[i]['lon'])
                 dlat, dlon = lat2 - lat1, lon2 - lon1
                 a = math.sin(dlat/2)**2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon/2)**2
-                c = 2 * math.asin(math.sqrt(a))
+                c = 2 * math.asin(math.sqrt(min(1.0, a)))
                 total_nm += 6371 * c / 1.852  # km to nm
 
         eta_days = total_nm / (speed_knots * 24)

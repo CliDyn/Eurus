@@ -1,9 +1,11 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}Eurus{% endblock %}</title>
+    <link rel="icon" type="image/jpeg" href="/static/favicon.jpeg">
 
     <!-- Custom styles only -->
     <link rel="stylesheet" href="/static/css/style.css">
@@ -12,12 +14,14 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
     <!-- Highlight.js for code -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
+    <link rel="stylesheet"
+        href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/atom-one-dark.min.css">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/languages/python.min.js"></script>
 
     {% block head %}{% endblock %}
 </head>
+
 <body>
     <header>
         <nav>
@@ -51,4 +55,5 @@
 
     {% block scripts %}{% endblock %}
 </body>
+
 </html>
