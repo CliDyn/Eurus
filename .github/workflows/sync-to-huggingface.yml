@@ -30,5 +30,6 @@ jobs:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
           pip install -U huggingface_hub hf_xet
-          python -m huggingface_hub.cli upload dmpantiu/Eurus . . --repo-type space --token $HF_TOKEN
+          export PATH="$HOME/.local/bin:$PATH"
+          huggingface-cli upload dmpantiu/Eurus . . --repo-type space --token $HF_TOKEN
 
