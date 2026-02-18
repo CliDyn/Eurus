@@ -11,11 +11,18 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # Full history needed for push
+          fetch-depth: 0
+          lfs: true  # Checkout LFS files
+
+      - name: Fetch all LFS objects
+        run: git lfs pull
 
       - name: Push to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
+          # Install hf_xet for Hugging Face Xet storage support
+          pip install hf_xet
+
           git remote add huggingface https://dmpantiu:$HF_TOKEN@huggingface.co/dmpantiu/Eurus.git || true
           git push huggingface main --force
