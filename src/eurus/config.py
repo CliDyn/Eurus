@@ -509,7 +509,7 @@ class AgentConfig:
     max_download_size_gb: float = 2.0
 
     # Retrieval Settings
-    max_retries: int = 3
+    max_retries: int = 5
     retry_delay: float = 2.0
 
     # Memory Settings

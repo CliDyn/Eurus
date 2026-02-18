@@ -41,269 +41,398 @@ from eurus.config import AGENT_SYSTEM_PROMPT, CONFIG, get_plots_dir
 from eurus.tools import get_all_tools
 
 # ============================================================================
-# QA TEST QUERIES  — progressive difficulty
+# QA TEST QUERIES — 36 research-grade demo queries
 #
-#  TIER 1  (Q01-Q07)  Simple single-variable retrieve → plot / stats
-#  TIER 2  (Q08-Q14)  Derived quantities, multi-variable, comparisons
-#  TIER 3  (Q15-Q20)  Real scientific analysis: indices, correlations,
-#                      composite events, physical reasoning
+#  §1  Synoptic Meteorology & Case Studies         (Q01–Q05)
+#  §2  Climate Variability & Teleconnections        (Q06–Q10)
+#  §3  Trends & Climate Change Signals              (Q11–Q15)
+#  §4  Extreme Events & Risk                        (Q16–Q20)
+#  §5  Maritime & Shipping                          (Q21–Q24)
+#  §6  Energy Assessment                            (Q25–Q28)
+#  §7  Diurnal & Sub-Daily Processes                (Q29–Q30)
+#  §8  Multi-Variable & Diagnostics                 (Q31–Q33)
+#  §9  Quick Lookups                                (Q34–Q36)
 # ============================================================================
 
 QA_QUERIES = [
-    # ═════════════════════════════════════════════════════════════════════
-    #  TIER 1 — simple retrieval + visualisation
-    # ═════════════════════════════════════════════════════════════════════
+    # ═══════════════════════════════════════════════════════════════
+    #  §1 — Synoptic Meteorology & Case Studies
+    # ═══════════════════════════════════════════════════════════════
     {
         "id": 1,
-        "slug": "sst_snapshot",
-        "query": "Retrieve sea surface temperature (sst) for the Mediterranean Sea "
-                 "(30-46N, -6 to 36E) on 2023-08-01 at 12:00 UTC. "
-                 "Plot a spatial map in °C with a colorbar.",
-        "type": "spatial_map",
+        "slug": "europe_heatwave_anomaly",
+        "query": "Show me a spatial map of 2m temperature anomalies across Europe "
+                 "during the June 2023 heatwave compared to June 2022.",
+        "type": "anomaly_map",
+        "variables": ["t2"],
+        "region": "Europe",
+    },
+    {
+        "id": 2,
+        "slug": "storm_isha_mslp_wind",
+        "query": "Plot MSLP isobars and 10m wind vectors over the North Atlantic "
+                 "for 2024-01-22 — I want to see Storm Isha's structure.",
+        "type": "contour_quiver",
+        "variables": ["mslp", "u10", "v10"],
+        "region": "North Atlantic",
+    },
+    {
+        "id": 3,
+        "slug": "atmospheric_river_jan2023",
+        "query": "Download total column water vapour for the US West Coast, Jan 2023, "
+                 "and show the atmospheric river event around Jan 9th.",
+        "type": "ar_detection",
+        "variables": ["tcwv"],
+        "region": "US West Coast",
+    },
+    {
+        "id": 4,
+        "slug": "sahara_heat_july2024",
+        "query": "Plot the daily mean 2m temperature time series averaged over "
+                 "the Sahara (20-30°N, 0 to 15°E) for July 2024 and compare "
+                 "it to July 2023 on the same chart.",
+        "type": "time_series",
+        "variables": ["t2"],
+        "region": "Sahara",
+    },
+    {
+        "id": 5,
+        "slug": "great_plains_wind_may2024",
+        "query": "Plot a map of mean 10m wind speed over the US Great Plains "
+                 "(30-45°N, -105 to -90°W) for May 2024 and highlight areas exceeding 5 m/s.",
+        "type": "threshold_map",
+        "variables": ["u10", "v10"],
+        "region": "US Great Plains",
+    },
+
+    # ═══════════════════════════════════════════════════════════════
+    #  §2 — Climate Variability & Teleconnections
+    # ═══════════════════════════════════════════════════════════════
+    {
+        "id": 6,
+        "slug": "nino34_index",
+        "query": "Calculate the Niño 3.4 index from ERA5 SST for 2015-2024 and "
+                 "classify El Niño / La Niña episodes.",
+        "type": "climate_index",
+        "variables": ["sst"],
+        "region": "Tropical Pacific",
+    },
+    {
+        "id": 7,
+        "slug": "elnino_vs_lanina_tropical_belt",
+        "query": "Compare SST anomalies across the entire tropical belt "
+                 "(30°S-30°N, global) for December 2023 (peak El Niño) vs December 2022 "
+                 "(La Niña). Show the full basin-wide pattern across the Pacific, "
+                 "Atlantic, and Indian oceans in a single anomaly difference map.",
+        "type": "anomaly_comparison",
+        "variables": ["sst"],
+        "region": "Tropical Belt (global)",
+    },
+    {
+        "id": 8,
+        "slug": "nao_index",
+        "query": "Compute the NAO index from MSLP (Azores minus Iceland) for 2000-2024 "
+                 "and plot it with a 3-month rolling mean.",
+        "type": "climate_index",
+        "variables": ["mslp"],
+        "region": "North Atlantic",
+    },
+    {
+        "id": 9,
+        "slug": "australia_enso_rainfall",
+        "query": "Compare precipitation over Eastern Australia (25-45°S, 145-155°E) "
+                 "between the La Niña year 2022 and El Niño year 2023. "
+                 "Show a two-panel map of annual total precipitation for each year "
+                 "and a difference map (2023 minus 2022).",
+        "type": "multi_year_anomaly",
+        "variables": ["tp"],
+        "region": "Australia",
+    },
+    {
+        "id": 10,
+        "slug": "med_eof_sst",
+        "query": "Perform an EOF analysis on Mediterranean SST anomalies "
+                 "(30-46°N, -6 to 36°E) for 2019-2024 and show the first 3 modes "
+                 "with variance explained. Interpret the dominant patterns.",
+        "type": "eof_analysis",
+        "variables": ["sst"],
+        "region": "Mediterranean",
+    },
+
+    # ═══════════════════════════════════════════════════════════════
+    #  §3 — Trends & Climate Change Signals
+    # ═══════════════════════════════════════════════════════════════
+    {
+        "id": 11,
+        "slug": "arctic_polar_amplification",
+        "query": "Compare January mean 2m temperature across the entire Arctic "
+                 "(north of 70°N) for 2024 vs 2000. Show both maps side by side, "
+                 "compute the area-weighted temperature difference, and quantify "
+                 "polar amplification.",
+        "type": "decadal_comparison",
+        "variables": ["t2"],
+        "region": "Arctic (>70°N)",
+    },
+    {
+        "id": 12,
+        "slug": "med_marine_heatwave_2023",
+        "query": "Map the summer (JJA) 2023 mean SST anomaly across the entire "
+                 "Mediterranean basin (30-46°N, -6 to 36°E) compared to the 2018-2022 "
+                 "summer mean. Identify marine heatwave hotspots where SST exceeded "
+                 "+2°C above normal.",
+        "type": "marine_heatwave",
         "variables": ["sst"],
         "region": "Mediterranean",
     },
     {
-        "id": 2,
-        "slug": "t2m_timeseries",
-        "query": "Retrieve 2m temperature (t2) for Berlin (52-53N, 13-14E) "
-                 "for all of January 2024. Plot the hourly time series in °C "
-                 "and report the monthly mean, min, and max.",
+        "id": 13,
+        "slug": "paris_decadal_comparison",
+        "query": "Compare the average summer (JJA) temperature in Paris between the "
+                 "decades 2000-2009 and 2014-2023 — show a difference map and time series.",
+        "type": "multi_panel_comparison",
+        "variables": ["t2"],
+        "region": "Paris",
+    },
+    {
+        "id": 14,
+        "slug": "alps_snow_trend",
+        "query": "Has the snow depth over the Alps decreased over the last 30 years? "
+                 "Show me the December-February trend.",
+        "type": "trend_analysis",
+        "variables": ["sd"],
+        "region": "Alps",
+    },
+    {
+        "id": 15,
+        "slug": "uk_precip_anomaly_winter2024",
+        "query": "Map the total precipitation anomaly over the British Isles "
+                 "(49-60°N, 11°W-2°E) for January 2024 compared to the 2019-2023 "
+                 "January mean. Highlight regions receiving more than 150% of normal "
+                 "rainfall. Save the map as a PNG file.",
+        "type": "anomaly_map",
+        "variables": ["tp"],
+        "region": "British Isles",
+    },
+
+    # ═══════════════════════════════════════════════════════════════
+    #  §4 — Extreme Events & Risk
+    # ═══════════════════════════════════════════════════════════════
+    {
+        "id": 16,
+        "slug": "delhi_heatwave_detection",
+        "query": "Detect heatwave events in Delhi from 2010-2024 using the 90th "
+                 "percentile threshold with a 3-day duration criterion — how has the "
+                 "frequency changed?",
+        "type": "heatwave_detection",
+        "variables": ["t2"],
+        "region": "Delhi",
+    },
+    {
+        "id": 17,
+        "slug": "horn_africa_drought",
+        "query": "Calculate a 3-month SPI proxy for the Horn of Africa "
+                 "(Ethiopia/Somalia) for 2020-2024 — when were the worst drought periods?",
+        "type": "drought_analysis",
+        "variables": ["tp"],
+        "region": "Horn of Africa",
+    },
+    {
+        "id": 18,
+        "slug": "baghdad_hot_days",
+        "query": "How many days per year exceeded 35°C in Baghdad from 1980 to 2024? "
+                 "Plot as a bar chart with a trend line.",
+        "type": "exceedance_frequency",
+        "variables": ["t2"],
+        "region": "Baghdad",
+    },
+    {
+        "id": 19,
+        "slug": "sea_p95_precip",
+        "query": "Show me the 95th percentile daily precipitation map for Southeast Asia "
+                 "for 2010-2023.",
+        "type": "extreme_percentile",
+        "variables": ["tp"],
+        "region": "Southeast Asia",
+    },
+    {
+        "id": 20,
+        "slug": "scandinavia_blocking_2018",
+        "query": "Analyse the blocking event over Scandinavia in July 2018 — show MSLP "
+                 "anomalies persisting for 5+ days.",
+        "type": "blocking_detection",
+        "variables": ["mslp"],
+        "region": "Scandinavia",
+    },
+
+    # ═══════════════════════════════════════════════════════════════
+    #  §5 — Maritime & Shipping
+    # ═══════════════════════════════════════════════════════════════
+    {
+        "id": 21,
+        "slug": "rotterdam_shanghai_route",
+        "query": "Calculate the maritime route from Rotterdam to Shanghai and analyse "
+                 "wind risk along the route for December.",
+        "type": "maritime_route_risk",
+        "variables": ["u10", "v10"],
+        "region": "Europe-Asia",
+    },
+    {
+        "id": 22,
+        "slug": "indian_ocean_sst_dipole",
+        "query": "Map the SST anomaly across the Indian Ocean (30°S-25°N, 30-120°E) "
+                 "for October 2023 relative to the 2019-2022 October mean. "
+                 "Show the Indian Ocean Dipole pattern. Save the map as PNG.",
+        "type": "anomaly_map",
+        "variables": ["sst"],
+        "region": "Indian Ocean",
+    },
+    {
+        "id": 23,
+        "slug": "japan_typhoon_season_wind",
+        "query": "Map the mean and maximum 10m wind speed over the seas around Japan "
+                 "(20-45°N, 120-150°E) during typhoon season (August-October) 2023. "
+                 "Show two-panel spatial maps highlighting areas where mean wind "
+                 "exceeded 8 m/s. Save as PNG.",
+        "type": "multi_panel_map",
+        "variables": ["u10", "v10"],
+        "region": "Japan",
+    },
+    {
+        "id": 24,
+        "slug": "south_atlantic_sst_gradient",
+        "query": "Map the mean SST field across the South Atlantic (40°S-5°N, 50°W-15°E) "
+                 "for March 2024. Overlay SST isotherms and highlight the "
+                 "Brazil-Malvinas confluence zone. Save as PNG.",
+        "type": "sst_map",
+        "variables": ["sst"],
+        "region": "South Atlantic",
+    },
+
+    # ═══════════════════════════════════════════════════════════════
+    #  §6 — Energy Assessment
+    # ═══════════════════════════════════════════════════════════════
+    {
+        "id": 25,
+        "slug": "north_sea_wind_power",
+        "query": "Map the mean 100m wind power density across the North Sea for "
+                 "2020-2024 — where are the best offshore wind sites?",
+        "type": "wind_energy",
+        "variables": ["u100", "v100"],
+        "region": "North Sea",
+    },
+    {
+        "id": 26,
+        "slug": "german_bight_weibull",
+        "query": "Fit a Weibull distribution to 100m wind speed at 54°N, 7°E "
+                 "(German Bight) for 2023 and estimate the capacity factor for a "
+                 "3-25 m/s turbine range. Plot the histogram with Weibull fit overlay "
+                 "and save as PNG.",
+        "type": "weibull_analysis",
+        "variables": ["u100", "v100"],
+        "region": "German Bight",
+    },
+    {
+        "id": 27,
+        "slug": "solar_sahara_vs_germany",
+        "query": "Compare incoming solar radiation (SSRD) between the Sahara and "
+                 "northern Germany across 2023 — show monthly means.",
+        "type": "comparison_timeseries",
+        "variables": ["ssrd"],
+        "region": "Sahara / Germany",
+    },
+    {
+        "id": 28,
+        "slug": "persian_gulf_sst_summer",
+        "query": "Map the mean SST across the Persian Gulf and Arabian Sea "
+                 "(12-32°N, 44-70°E) for August 2023. Highlight areas where SST "
+                 "exceeded 32°C in a spatial map. Save as PNG.",
+        "type": "threshold_map",
+        "variables": ["sst"],
+        "region": "Persian Gulf",
+    },
+
+    # ═══════════════════════════════════════════════════════════════
+    #  §7 — Diurnal & Sub-Daily Processes
+    # ═══════════════════════════════════════════════════════════════
+    {
+        "id": 29,
+        "slug": "sahara_diurnal_t2_blh",
+        "query": "Show the diurnal cycle of 2m temperature and boundary layer height "
+                 "in the Sahara for July 2024 — dual-axis plot.",
+        "type": "diurnal_cycle",
+        "variables": ["t2", "blh"],
+        "region": "Sahara",
+    },
+    {
+        "id": 30,
+        "slug": "amazon_convective_peak",
+        "query": "When does convective precipitation peak over the Amazon basin during "
+                 "DJF? Hourly climatology please.",
+        "type": "diurnal_cycle",
+        "variables": ["cp"],
+        "region": "Amazon",
+    },
+
+    # ═══════════════════════════════════════════════════════════════
+    #  §8 — Multi-Variable & Diagnostics
+    # ═══════════════════════════════════════════════════════════════
+    {
+        "id": 31,
+        "slug": "europe_rh_august",
+        "query": "Compute relative humidity from 2m temperature and dewpoint for "
+                 "central Europe, August 2023, and map the spatial mean.",
+        "type": "derived_variable",
+        "variables": ["t2", "d2"],
+        "region": "Central Europe",
+    },
+    {
+        "id": 32,
+        "slug": "hovmoller_equator_skt",
+        "query": "Create a Hovmöller diagram of 850 hPa equivalent — use skin "
+                 "temperature as proxy — along the equator for 2023 to visualise the MJO.",
+        "type": "hovmoller",
+        "variables": ["skt"],
+        "region": "Equatorial",
+    },
+    {
+        "id": 33,
+        "slug": "hurricane_otis_dashboard",
+        "query": "Plot a summary dashboard for Hurricane Otis (Oct 2023, Acapulco): "
+                 "SST map, wind speed time series, and TCWV distribution in one figure.",
+        "type": "dashboard",
+        "variables": ["sst", "u10", "v10", "tcwv"],
+        "region": "East Pacific / Mexico",
+    },
+
+    # ═══════════════════════════════════════════════════════════════
+    #  §9 — Quick Lookups
+    # ═══════════════════════════════════════════════════════════════
+    {
+        "id": 34,
+        "slug": "california_sst_jan",
+        "query": "What was the average SST off the coast of California in January 2024? "
+                 "Also plot a spatial map of the SST field for that month and save as PNG.",
+        "type": "point_retrieval",
+        "variables": ["sst"],
+        "region": "California",
+    },
+    {
+        "id": 35,
+        "slug": "berlin_monthly_temp",
+        "query": "Plot the 2023 monthly mean temperature for Berlin as a seasonal curve.",
         "type": "time_series",
         "variables": ["t2"],
         "region": "Berlin",
     },
     {
-        "id": 3,
-        "slug": "mslp_contour",
-        "query": "Retrieve mean sea level pressure (mslp) for Europe "
-                 "(35-72N, -10 to 40E) on 2024-01-10 at 00 UTC. "
-                 "Create a contour map in hPa.",
-        "type": "contour_map",
-        "variables": ["mslp"],
-        "region": "Europe",
-    },
-    {
-        "id": 4,
-        "slug": "precip_histogram",
-        "query": "Retrieve total precipitation (tp) for India (8-35N, 68-90E) "
-                 "on 2023-07-15. Plot a histogram of the precipitation values "
-                 "in mm and report the 90th and 99th percentiles.",
-        "type": "histogram",
-        "variables": ["tp"],
-        "region": "India",
-    },
-    {
-        "id": 5,
-        "slug": "cloud_cover_map",
-        "query": "Get total cloud cover (tcc) for the North Atlantic "
-                 "(30-65N, -60 to 0E) on 2023-12-01 at 12 UTC. "
-                 "Plot a spatial map using a grayscale colormap (0 = clear, 1 = overcast).",
-        "type": "spatial_map",
-        "variables": ["tcc"],
-        "region": "North Atlantic",
-    },
-    {
-        "id": 6,
-        "slug": "blh_diurnal",
-        "query": "Retrieve boundary layer height (blh) for the Moscow region "
-                 "(55-56N, 37-38E) for 2023-06-21. Plot the diurnal cycle "
-                 "(area-mean BLH for each of the 24 hours).",
-        "type": "diurnal_cycle",
-        "variables": ["blh"],
-        "region": "Moscow",
-    },
-    {
-        "id": 7,
-        "slug": "snow_depth_map",
-        "query": "Get snow depth (sd) for Scandinavia (58-70N, 5-30E) "
-                 "on 2024-01-15. Plot a spatial map in meters of water equivalent. "
-                 "Report the area-average snow depth.",
-        "type": "spatial_map",
-        "variables": ["sd"],
-        "region": "Scandinavia",
-    },
-
-    # ═════════════════════════════════════════════════════════════════════
-    #  TIER 2 — derived quantities, multi-variable, comparisons
-    # ═════════════════════════════════════════════════════════════════════
-    {
-        "id": 8,
-        "slug": "wind_speed_derived",
-        "query": "Get u10 and v10 for the North Sea (51-56N, 3-9E) on 2023-12-01. "
-                 "Compute wind speed as sqrt(u10² + v10²). Plot the wind speed "
-                 "spatial map in m/s, overlay wind direction arrows with quiver().",
-        "type": "spatial_map",
+        "id": 36,
+        "slug": "biscay_wind_stats",
+        "query": "Download 10m wind speed for the Bay of Biscay, last 3 years, and "
+                 "give me basic statistics. Also plot a wind speed histogram or time "
+                 "series and save as PNG.",
+        "type": "stats_retrieval",
         "variables": ["u10", "v10"],
-        "region": "North Sea",
-    },
-    {
-        "id": 9,
-        "slug": "relative_humidity",
-        "query": "Retrieve t2 and d2 for Florida (24-31N, -88 to -80W) "
-                 "on 2023-07-15 at 15 UTC. Compute relative humidity using the "
-                 "Magnus formula: RH = 100 * exp(17.625*Td/(243.04+Td)) / exp(17.625*T/(243.04+T)) "
-                 "where T and Td are in °C. Plot the RH field as a % map.",
-        "type": "spatial_map",
-        "variables": ["t2", "d2"],
-        "region": "Florida",
-    },
-    {
-        "id": 10,
-        "slug": "sst_anomaly_blacksea",
-        "query": "Retrieve SST for the Black Sea (41-46N, 27-42E) on 2023-08-01 "
-                 "AND on 2022-08-01. Compute the anomaly (SST_2023 − SST_2022). "
-                 "Plot a diverging anomaly map (blue=cooler, red=warmer) in °C.",
-        "type": "anomaly_map",
-        "variables": ["sst"],
-        "region": "Black Sea",
-    },
-    {
-        "id": 11,
-        "slug": "radiation_budget",
-        "query": "Retrieve ssrd (incoming solar) and ssr (net solar) for the Sahara "
-                 "(20-30N, 0-10E) on 2023-06-21. Compute surface albedo as "
-                 "α = 1 − (ssr / ssrd). Plot a map of albedo (0–1) and report "
-                 "the area-mean albedo. What physical processes explain the pattern?",
-        "type": "derived_map",
-        "variables": ["ssrd", "ssr"],
-        "region": "Sahara",
-    },
-    {
-        "id": 12,
-        "slug": "precip_partitioning",
-        "query": "Retrieve tp, cp, and lsp for Western Europe (43-55N, -5 to 15E) "
-                 "on 2023-08-15. Compute the convective fraction = cp / tp. "
-                 "Plot two subplots: (1) total precipitation in mm, "
-                 "(2) convective fraction (0–1). Where was convection dominant?",
-        "type": "multi_panel",
-        "variables": ["tp", "cp", "lsp"],
-        "region": "Western Europe",
-    },
-    {
-        "id": 13,
-        "slug": "wind_shear_10_100",
-        "query": "Retrieve u10, v10 AND u100, v100 for the German Bight "
-                 "(53-56N, 6-10E) on 2023-09-01. Compute wind speed at 10m and 100m. "
-                 "Calculate the wind shear exponent α from the power law: "
-                 "V100/V10 = (100/10)^α → α = log(V100/V10) / log(10). "
-                 "Plot a map of the shear exponent and report the area mean.",
-        "type": "derived_map",
-        "variables": ["u10", "v10", "u100", "v100"],
-        "region": "German Bight",
-    },
-    {
-        "id": 14,
-        "slug": "soil_moisture_temp",
-        "query": "Retrieve soil moisture (swvl1) and soil temperature (stl1) for "
-                 "central France (45-49N, 0-5E) on 2023-08-01 at 12 UTC. "
-                 "Plot a scatter plot of soil temperature (°C, x-axis) vs soil "
-                 "moisture (m³/m³, y-axis) for all grid points. "
-                 "Compute the Pearson correlation. Is there a negative relationship?",
-        "type": "scatter_correlation",
-        "variables": ["swvl1", "stl1"],
-        "region": "Central France",
-    },
-
-    # ═════════════════════════════════════════════════════════════════════
-    #  TIER 3 — real scientific computations
-    # ═════════════════════════════════════════════════════════════════════
-    {
-        "id": 15,
-        "slug": "heat_index",
-        "query": "Retrieve t2 and d2 for the US Southeast (25-36N, -95 to -75W) "
-                 "on 2023-07-20 at 18 UTC. "
-                 "1) Convert t2 to °F: F = C*9/5 + 32. "
-                 "2) Compute RH (%) from the Magnus formula. "
-                 "3) Compute the NWS Heat Index using the Rothfusz regression: "
-                 "   HI = -42.379 + 2.04901523*T + 10.14333127*RH "
-                 "        - 0.22475541*T*RH - 6.83783e-3*T² - 5.481717e-2*RH² "
-                 "        + 1.22874e-3*T²*RH + 8.5282e-4*T*RH² - 1.99e-6*T²*RH² "
-                 "   (T in °F, RH in %). "
-                 "4) Convert back to °C and plot. Highlight cells > 40°C as 'extreme danger'.",
-        "type": "scientific_index",
-        "variables": ["t2", "d2"],
-        "region": "US Southeast",
-    },
-    {
-        "id": 16,
-        "slug": "wind_power_density",
-        "query": "Retrieve u100 and v100 for the Danish North Sea (54-58N, 3-9E) "
-                 "for 2023-09-01 (full day, all hours). "
-                 "1) Compute hourly hub-height wind speed V = sqrt(u100² + v100²). "
-                 "2) Compute wind power density: WPD = 0.5 * 1.225 * V³  (W/m²). "
-                 "3) Compute the daily-mean WPD at each grid point. "
-                 "4) Estimate capacity factor assuming a 15 MW turbine with "
-                 "   rated wind speed 12 m/s: CF = min(1, (V_mean/12)³). "
-                 "5) Plot two panels: (a) mean WPD (W/m²), (b) capacity factor (0–1).",
-        "type": "scientific_analysis",
-        "variables": ["u100", "v100"],
-        "region": "Danish North Sea",
-    },
-    {
-        "id": 17,
-        "slug": "bowen_ratio",
-        "query": "Retrieve ssr (net solar), ssrd (incoming solar), t2, and d2 for "
-                 "the Iberian Peninsula (36-44N, -10 to 3E) on 2023-08-01. "
-                 "1) Compute net radiation Q* ≈ ssr (J/m²). "
-                 "2) Estimate latent heat flux using the Priestley-Taylor "
-                 "   approach: compute the slope of the saturation vapour "
-                 "   pressure curve s = 4098 * (0.6108 * exp(17.27*T/(T+237.3))) "
-                 "   / (T+237.3)² (T in °C), then LE ≈ 1.26 * s/(s+0.067) * Q*. "
-                 "3) Sensible heat H ≈ Q* − LE. "
-                 "4) Compute Bowen ratio β = H / LE. "
-                 "5) Plot the Bowen ratio map. Values > 5 indicate arid conditions.",
-        "type": "energy_balance",
-        "variables": ["ssr", "ssrd", "t2", "d2"],
-        "region": "Iberian Peninsula",
-    },
-    {
-        "id": 18,
-        "slug": "thermal_front_detection",
-        "query": "Retrieve SST for the Gulf Stream region (30-45N, -80 to -50W) "
-                 "on 2024-01-15 at 12 UTC. "
-                 "1) Compute the spatial SST gradient magnitude: "
-                 "   |∇SST| = sqrt((dSST/dx)² + (dSST/dy)²) using np.gradient. "
-                 "2) Convert from K/gridcell to °C/100km (grid spacing ≈ 0.25° ≈ 28 km). "
-                 "3) Plot the SST field, then overlay contours of |∇SST| > 1°C/100km "
-                 "   to highlight thermal fronts. "
-                 "4) Report maximum gradient value and location — this is the Gulf Stream front.",
-        "type": "gradient_analysis",
-        "variables": ["sst"],
-        "region": "Gulf Stream",
-    },
-    {
-        "id": 19,
-        "slug": "thunderstorm_composite",
-        "query": "Retrieve CAPE, total column water vapour (tcwv), and wind shear "
-                 "(u10, v10, u100, v100) for the US Great Plains (30-45N, -105 to -90W) "
-                 "on 2023-05-15 at 18 UTC. "
-                 "1) Compute 0–100m bulk wind shear: "
-                 "   ΔV = sqrt((u100-u10)² + (v100-v10)²). "
-                 "2) Define a Composite Severe Weather Index: "
-                 "   SWI = (CAPE/1000) * (tcwv/30) * (ΔV/10). "
-                 "   Each factor is normalised so that 1.0 ≈ moderate threat. "
-                 "3) Plot: (a) CAPE (J/kg), (b) tcwv (kg/m²), (c) shear (m/s), "
-                 "   (d) SWI. Highlight SWI > 2 as 'high risk' in panel (d). "
-                 "4) Report the area fraction where SWI > 2.",
-        "type": "composite_extreme",
-        "variables": ["cape", "tcwv", "u10", "v10", "u100", "v100"],
-        "region": "US Great Plains",
-    },
-    {
-        "id": 20,
-        "slug": "urban_heat_island",
-        "query": "Retrieve skin temperature (skt) and 2m temperature (t2) for "
-                 "greater Paris (48-49.5N, 1.5-3.5E) on 2023-08-24 at 00 UTC (nighttime). "
-                 "1) Compute the surface-air temperature difference: ΔT = skt - t2 (°C). "
-                 "2) Compute spatial statistics: mean, std, and the 95th percentile of ΔT. "
-                 "3) Plot the ΔT map with a diverging colormap. "
-                 "4) The urban heat island appears as a warm ΔT anomaly over the city. "
-                 "   Identify the grid cell with the maximum ΔT and report its "
-                 "   coordinates and value. Discuss the physical mechanism.",
-        "type": "uhi_analysis",
-        "variables": ["skt", "t2"],
-        "region": "Paris",
+        "region": "Bay of Biscay",
     },
 ]
 
@@ -527,9 +656,10 @@ def run_single_query(agent, query_def: dict, output_dir: Path) -> dict:
 
 def main():
     parser = argparse.ArgumentParser(description="Eurus QA Runner")
-    parser.add_argument("--query", type=int, help="Run a single query by ID (1-10)")
+    parser.add_argument("--query", type=int, help="Run a single query by ID (1-36)")
     parser.add_argument("--start", type=int, default=1, help="Start from query ID")
-    parser.add_argument("--end", type=int, default=10, help="End at query ID (inclusive)")
+    parser.add_argument("--end", type=int, default=36, help="End at query ID (inclusive)")
+    parser.add_argument("--output", type=str, default=None, help="Output directory (default: data/qa_results)")
     parser.add_argument("--skip-existing", action="store_true", help="Skip if folder already has metadata.json")
     args = parser.parse_args()
     
@@ -538,7 +668,10 @@ def main():
         print("❌ OPENAI_API_KEY not set!")
         sys.exit(1)
     
-    output_dir = PROJECT_ROOT / "data" / "qa_results"
+    if args.output:
+        output_dir = Path(args.output)
+    else:
+        output_dir = PROJECT_ROOT / "data" / "qa_results"
     output_dir.mkdir(parents=True, exist_ok=True)
     
     print(f"""

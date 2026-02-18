@@ -278,6 +278,21 @@ def retrieve_era5_data(
                 f"Load with: ds = xr.open_dataset('{local_path}', engine='zarr')"
             )
 
+    # Guard: spatial queries are chunked for map access — multi-year ranges
+    # cause thousands of S3 chunk fetches and streaming errors.
+    # Limit spatial queries to 1 year max; suggest splitting or using temporal mode.
+    req_end = datetime.strptime(end_date, '%Y-%m-%d')
+    date_span_days = (req_end - req_start).days
+    if query_type == "spatial" and date_span_days > 366:
+        return (
+            f"Error: Spatial queries are limited to 1 year max ({date_span_days} days requested).\n"
+            f"The spatial dataset is optimised for maps, not long time series.\n\n"
+            f"Options:\n"
+            f"1. Split into yearly requests (e.g. one call per year)\n"
+            f"2. Use query_type='temporal' for multi-year time-series analysis\n"
+            f"3. Narrow the date range to ≤ 366 days"
+        )
+
     # Download with retry logic
     for attempt in range(CONFIG.max_retries):
         try:
@@ -300,13 +315,19 @@ def retrieve_era5_data(
             )
 
             # Validate variable exists
+            # Auto-compute tp = cp + lsp if tp is not directly available
+            compute_tp = False
             if short_var not in ds:
-                available = list(ds.data_vars)
-                return (
-                    f"Error: Variable '{short_var}' not found in dataset.\n"
-                    f"Available variables: {', '.join(available)}\n\n"
-                    f"Variable reference:\n{list_available_variables()}"
-                )
+                if short_var == "tp" and "cp" in ds and "lsp" in ds:
+                    logger.info("Variable 'tp' not in store — will compute tp = cp + lsp")
+                    compute_tp = True
+                else:
+                    available = list(ds.data_vars)
+                    return (
+                        f"Error: Variable '{short_var}' not found in dataset.\n"
+                        f"Available variables: {', '.join(available)}\n\n"
+                        f"Variable reference:\n{list_available_variables()}"
+                    )
 
             # ERA5 latitude is stored 90 -> -90 (descending)
             lat_slice = slice(max_latitude, min_latitude)
@@ -349,36 +370,52 @@ def retrieve_era5_data(
                 
                 # Subset both portions
                 logger.info("Subsetting data (two-part: west + east of prime meridian)...")
-                subset_west = ds[short_var].sel(
-                    time=slice(start_date, end_date),
-                    latitude=lat_slice,
-                    longitude=west_slice,
-                )
-                subset_east = ds[short_var].sel(
-                    time=slice(start_date, end_date),
-                    latitude=lat_slice,
-                    longitude=east_slice,
-                )
+                fetch_vars = ["cp", "lsp"] if compute_tp else [short_var]
+                subsets_all = []
+                for fv in fetch_vars:
+                    subset_west = ds[fv].sel(
+                        time=slice(start_date, end_date),
+                        latitude=lat_slice,
+                        longitude=west_slice,
+                    )
+                    subset_east = ds[fv].sel(
+                        time=slice(start_date, end_date),
+                        latitude=lat_slice,
+                        longitude=east_slice,
+                    )
+                    
+                    # Convert western longitudes from 360+ to negative (for -180/+180 output)
+                    # e.g., 359.1 -> -0.9
+                    subset_west = subset_west.assign_coords(
+                        longitude=subset_west.longitude - 360
+                    )
+                    
+                    # Concatenate along longitude
+                    subsets_all.append(xr.concat([subset_west, subset_east], dim='longitude'))
                 
-                # Convert western longitudes from 360+ to negative (for -180/+180 output)
-                # e.g., 359.1 -> -0.9
-                subset_west = subset_west.assign_coords(
-                    longitude=subset_west.longitude - 360
-                )
-                
-                # Concatenate along longitude
-                subset = xr.concat([subset_west, subset_east], dim='longitude')
+                if compute_tp:
+                    subset = (subsets_all[0] + subsets_all[1]).rename("tp")
+                else:
+                    subset = subsets_all[0]
             else:
                 # Normal case - no prime meridian crossing
                 lon_slice = slice(req_min, req_max)
 
                 # Subset the data
                 logger.info("Subsetting data...")
-                subset = ds[short_var].sel(
-                    time=slice(start_date, end_date),
-                    latitude=lat_slice,
-                    longitude=lon_slice,
-                )
+                fetch_vars = ["cp", "lsp"] if compute_tp else [short_var]
+                subsets_all = []
+                for fv in fetch_vars:
+                    subsets_all.append(ds[fv].sel(
+                        time=slice(start_date, end_date),
+                        latitude=lat_slice,
+                        longitude=lon_slice,
+                    ))
+                
+                if compute_tp:
+                    subset = (subsets_all[0] + subsets_all[1]).rename("tp")
+                else:
+                    subset = subsets_all[0]
 
             # Convert to dataset
             ds_out = subset.to_dataset(name=short_var)
