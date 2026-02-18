@@ -44,6 +44,12 @@ RUN pip install --no-cache-dir -e ".[agent,web]"
 # Create dirs the agent expects
 RUN mkdir -p /app/data/plots /app/.memory /app/logs
 
+# Pre-download Natural Earth data for Cartopy coastlines
+RUN python -c "import cartopy; cartopy.io.shapereader.natural_earth(resolution='110m', category='physical', name='coastline')" \
+    && python -c "import cartopy; cartopy.io.shapereader.natural_earth(resolution='50m', category='physical', name='coastline')" \
+    && python -c "import cartopy; cartopy.io.shapereader.natural_earth(resolution='110m', category='physical', name='land')" \
+    && python -c "import cartopy; cartopy.io.shapereader.natural_earth(resolution='50m', category='physical', name='land')"
+
 # Signal to the REPL that we're inside Docker → security checks disabled
 ENV EURUS_DOCKER=1
 # Matplotlib: no GUI backend
