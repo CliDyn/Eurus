@@ -51,13 +51,31 @@ async def websocket_chat(websocket: WebSocket):
     logger.info(f"New connection: {connection_id}")
 
     try:
-        # Create session for this connection
+        # Session created lazily after we receive API keys
         from web.agent_wrapper import create_session, get_session, close_session
-        session = create_session(connection_id)
-        
+        session = None
+
         while True:
             data = await websocket.receive_json()
             message = data.get("message", "").strip()
+
+            # Handle API key configuration from client
+            if data.get("type") == "configure_keys":
+                api_keys = {
+                    "openai_api_key": data.get("openai_api_key", ""),
+                    "arraylake_api_key": data.get("arraylake_api_key", ""),
+                }
+                session = create_session(connection_id, api_keys=api_keys)
+                ready = session.is_ready()
+                await manager.send_json(websocket, {
+                    "type": "keys_configured",
+                    "ready": ready,
+                })
+                continue
+
+            # Create default session if not yet created (keys from env)
+            if session is None:
+                session = create_session(connection_id)
 
             if not message:
                 continue

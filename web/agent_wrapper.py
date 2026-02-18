@@ -37,12 +37,13 @@ class AgentSession:
     Manages a single agent session with streaming support.
     """
 
-    def __init__(self):
+    def __init__(self, api_keys: Optional[Dict[str, str]] = None):
         self._agent = None
         self._repl_tool: Optional[PythonREPLTool] = None
         self._messages: List[Dict] = []
         self._initialized = False
-        
+        self._api_keys = api_keys or {}
+
         # Global singleton keeps the dataset cache (shared across sessions)
         self._memory = get_memory()
         # Per-session conversation memory — never touches other sessions
@@ -57,10 +58,17 @@ class AgentSession:
         """Initialize the agent and tools."""
         logger.info("Initializing agent session...")
 
-        if not os.environ.get("ARRAYLAKE_API_KEY"):
-            logger.warning("ARRAYLAKE_API_KEY not found")
+        # Resolve API keys: user-provided take priority over env vars
+        openai_key = self._api_keys.get("openai_api_key") or os.environ.get("OPENAI_API_KEY")
+        arraylake_key = self._api_keys.get("arraylake_api_key") or os.environ.get("ARRAYLAKE_API_KEY")
 
-        if not os.environ.get("OPENAI_API_KEY"):
+        if not arraylake_key:
+            logger.warning("ARRAYLAKE_API_KEY not found")
+        else:
+            # Set in env so retrieval tools can pick it up
+            os.environ["ARRAYLAKE_API_KEY"] = arraylake_key
+
+        if not openai_key:
             logger.error("OPENAI_API_KEY not found")
             return
 
@@ -82,11 +90,12 @@ class AgentSession:
             # Replace the default REPL with our configured one
             tools = [t for t in tools if t.name != "python_repl"] + [self._repl_tool]
 
-            # Initialize LLM
+            # Initialize LLM with resolved key
             logger.info("Connecting to LLM...")
             llm = ChatOpenAI(
                 model=CONFIG.model_name,
-                temperature=CONFIG.temperature
+                temperature=CONFIG.temperature,
+                api_key=openai_key,
             )
 
             # Use session-local memory for datasets (NOT global!)
@@ -254,12 +263,12 @@ class AgentSession:
 _sessions: Dict[str, AgentSession] = {}
 
 
-def create_session(connection_id: str) -> AgentSession:
+def create_session(connection_id: str, api_keys: Optional[Dict[str, str]] = None) -> AgentSession:
     """Create a new session for a connection."""
     if connection_id in _sessions:
         # Close existing session first
         _sessions[connection_id].close()
-    session = AgentSession()
+    session = AgentSession(api_keys=api_keys)
     _sessions[connection_id] = session
     logger.info(f"Created session for connection: {connection_id}")
     return session

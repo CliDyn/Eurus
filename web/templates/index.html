@@ -4,6 +4,25 @@
 
 {% block content %}
 <div class="chat-container">
+    <!-- API Keys panel — hidden when keys are pre-configured via env -->
+    <div id="api-keys-panel" class="api-keys-panel" style="display: none;">
+        <div class="api-keys-header">
+            <span>API Keys Required</span>
+        </div>
+        <div class="api-keys-body">
+            <p class="api-keys-note">Enter your API keys to use Eurus. Keys are stored in your browser only and never saved on the server.</p>
+            <div class="api-key-field">
+                <label for="openai-key">OpenAI API Key <span class="required">*</span></label>
+                <input type="password" id="openai-key" placeholder="sk-..." autocomplete="off">
+            </div>
+            <div class="api-key-field">
+                <label for="arraylake-key">Arraylake API Key</label>
+                <input type="password" id="arraylake-key" placeholder="ema_..." autocomplete="off">
+            </div>
+            <button id="save-keys-btn" class="save-keys-btn">Connect</button>
+        </div>
+    </div>
+
     <div id="chat-messages" class="chat-messages">
         <div class="message system-message">
             <h3>Welcome to Eurus</h3>

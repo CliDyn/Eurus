@@ -51,6 +51,15 @@ class ConfigResponse(BaseModel):
     model: str
 
 
+@router.get("/keys-status")
+async def keys_status():
+    """Check which API keys are configured via environment variables."""
+    return {
+        "openai": bool(os.environ.get("OPENAI_API_KEY")),
+        "arraylake": bool(os.environ.get("ARRAYLAKE_API_KEY")),
+    }
+
+
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
     """Check if the server and agent are healthy."""
