@@ -64,8 +64,9 @@ class AgentSession:
 
         if not arraylake_key:
             logger.warning("ARRAYLAKE_API_KEY not found")
-        else:
-            # Set in env so retrieval tools can pick it up
+        elif not os.environ.get("ARRAYLAKE_API_KEY"):
+            # Only set env var if not already configured (avoid overwriting
+            # server-configured keys with user-provided ones in multi-user scenarios)
             os.environ["ARRAYLAKE_API_KEY"] = arraylake_key
 
         if not openai_key:
