@@ -62,15 +62,7 @@ class EurusChat {
                 this.apiKeysPanel.style.display = 'none';
                 this.keysConfigured = true;
             } else {
-                // No server keys — check localStorage for saved keys
-                const savedOpenai = localStorage.getItem('eurus-openai-key');
-                const savedArraylake = localStorage.getItem('eurus-arraylake-key');
-                if (savedOpenai) {
-                    this.openaiKeyInput.value = savedOpenai;
-                }
-                if (savedArraylake) {
-                    this.arraylakeKeyInput.value = savedArraylake;
-                }
+                // No server keys — show panel, user must enter keys each session
                 this.apiKeysPanel.style.display = 'block';
                 this.keysConfigured = false;
             }
@@ -103,13 +95,7 @@ class EurusChat {
             return;
         }
 
-        // Save to localStorage (client-side only)
-        localStorage.setItem('eurus-openai-key', openaiKey);
-        if (arraylakeKey) {
-            localStorage.setItem('eurus-arraylake-key', arraylakeKey);
-        }
-
-        // Send keys via WebSocket
+        // Send keys via WebSocket (never saved to storage)
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             this.saveKeysBtn.disabled = true;
             this.saveKeysBtn.textContent = 'Connecting...';
@@ -162,18 +148,7 @@ class EurusChat {
                 this.reconnectAttempts = 0;
                 this.updateConnectionStatus('connected');
 
-                // If server has no keys, auto-send saved keys from localStorage
-                if (!this.serverKeysPresent.openai) {
-                    const savedOpenai = localStorage.getItem('eurus-openai-key');
-                    if (savedOpenai) {
-                        const savedArraylake = localStorage.getItem('eurus-arraylake-key') || '';
-                        this.ws.send(JSON.stringify({
-                            type: 'configure_keys',
-                            openai_api_key: savedOpenai,
-                            arraylake_api_key: savedArraylake,
-                        }));
-                    }
-                } else {
+                if (this.serverKeysPresent.openai) {
                     this.sendBtn.disabled = false;
                 }
             };
