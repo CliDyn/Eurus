@@ -1,3 +1,12 @@
+---
+title: Eurus
+emoji: 🌊
+colorFrom: purple
+colorTo: blue
+sdk: docker
+pinned: false
+---
+
 # Eurus - ERA5 Climate Analysis Agent
 
 <div align="center">
