@@ -64,6 +64,7 @@ async def websocket_chat(websocket: WebSocket):
                 api_keys = {
                     "openai_api_key": data.get("openai_api_key", ""),
                     "arraylake_api_key": data.get("arraylake_api_key", ""),
+                    "hf_token": data.get("hf_token", ""),
                 }
                 session = create_session(connection_id, api_keys=api_keys)
                 ready = session.is_ready()

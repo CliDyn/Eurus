@@ -26,6 +26,7 @@ class EurusChat {
         this.saveKeysBtn = document.getElementById('save-keys-btn');
         this.openaiKeyInput = document.getElementById('openai-key');
         this.arraylakeKeyInput = document.getElementById('arraylake-key');
+        this.hfKeyInput = document.getElementById('hf-key');
 
         marked.setOptions({
             highlight: (code, lang) => {
@@ -80,7 +81,7 @@ class EurusChat {
         this.saveKeysBtn.addEventListener('click', () => this.saveAndSendKeys());
 
         // Allow Enter in key fields to submit
-        [this.openaiKeyInput, this.arraylakeKeyInput].forEach(input => {
+        [this.openaiKeyInput, this.arraylakeKeyInput, this.hfKeyInput].forEach(input => {
             input.addEventListener('keydown', (e) => {
                 if (e.key === 'Enter') {
                     e.preventDefault();
@@ -88,25 +89,69 @@ class EurusChat {
                 }
             });
         });
+
+        // Restore keys from sessionStorage (survives refresh, cleared on browser close)
+        this.restoreSessionKeys();
+    }
+
+    restoreSessionKeys() {
+        const saved = sessionStorage.getItem('eurus-keys');
+        if (!saved) return;
+        try {
+            const keys = JSON.parse(saved);
+            if (keys.openai_api_key) this.openaiKeyInput.value = keys.openai_api_key;
+            if (keys.arraylake_api_key) this.arraylakeKeyInput.value = keys.arraylake_api_key;
+            if (keys.hf_token) this.hfKeyInput.value = keys.hf_token;
+        } catch (e) {
+            sessionStorage.removeItem('eurus-keys');
+        }
+    }
+
+    autoSendSessionKeys() {
+        // After WS connects, if we have session-stored keys and server has none, auto-send them
+        if (this.serverKeysPresent.openai || this.keysConfigured) return;
+        const saved = sessionStorage.getItem('eurus-keys');
+        if (!saved) return;
+        try {
+            const keys = JSON.parse(saved);
+            if (keys.openai_api_key && this.ws && this.ws.readyState === WebSocket.OPEN) {
+                this.ws.send(JSON.stringify({
+                    type: 'configure_keys',
+                    openai_api_key: keys.openai_api_key,
+                    arraylake_api_key: keys.arraylake_api_key || '',
+                    hf_token: keys.hf_token || '',
+                }));
+            }
+        } catch (e) {
+            sessionStorage.removeItem('eurus-keys');
+        }
     }
 
     saveAndSendKeys() {
         const openaiKey = this.openaiKeyInput.value.trim();
         const arraylakeKey = this.arraylakeKeyInput.value.trim();
+        const hfKey = this.hfKeyInput.value.trim();
 
         if (!openaiKey) {
             this.openaiKeyInput.focus();
             return;
         }
 
-        // Send keys via WebSocket (never saved to storage)
+        // Save to sessionStorage (cleared when browser closes, survives refresh)
+        const keysPayload = {
+            openai_api_key: openaiKey,
+            arraylake_api_key: arraylakeKey,
+            hf_token: hfKey,
+        };
+        sessionStorage.setItem('eurus-keys', JSON.stringify(keysPayload));
+
+        // Send keys via WebSocket
         if (this.ws && this.ws.readyState === WebSocket.OPEN) {
             this.saveKeysBtn.disabled = true;
             this.saveKeysBtn.textContent = 'Connecting...';
             this.ws.send(JSON.stringify({
                 type: 'configure_keys',
-                openai_api_key: openaiKey,
-                arraylake_api_key: arraylakeKey,
+                ...keysPayload,
             }));
         }
     }
@@ -154,6 +199,9 @@ class EurusChat {
 
                 if (this.serverKeysPresent.openai || this.keysConfigured) {
                     this.sendBtn.disabled = false;
+                } else {
+                    // Auto-send keys from sessionStorage on reconnect/refresh
+                    this.autoSendSessionKeys();
                 }
             };
 

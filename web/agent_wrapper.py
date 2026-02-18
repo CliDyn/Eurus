@@ -61,6 +61,7 @@ class AgentSession:
         # Resolve API keys: user-provided take priority over env vars
         openai_key = self._api_keys.get("openai_api_key") or os.environ.get("OPENAI_API_KEY")
         arraylake_key = self._api_keys.get("arraylake_api_key") or os.environ.get("ARRAYLAKE_API_KEY")
+        hf_token = self._api_keys.get("hf_token") or os.environ.get("HF_TOKEN")
 
         if not arraylake_key:
             logger.warning("ARRAYLAKE_API_KEY not found")
@@ -68,6 +69,9 @@ class AgentSession:
             # Only set env var if not already configured (avoid overwriting
             # server-configured keys with user-provided ones in multi-user scenarios)
             os.environ["ARRAYLAKE_API_KEY"] = arraylake_key
+
+        if hf_token and not os.environ.get("HF_TOKEN"):
+            os.environ["HF_TOKEN"] = hf_token
 
         if not openai_key:
             logger.error("OPENAI_API_KEY not found")

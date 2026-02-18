@@ -60,6 +60,7 @@ async def keys_status():
     return {
         "openai": bool(os.environ.get("OPENAI_API_KEY")),
         "arraylake": bool(os.environ.get("ARRAYLAKE_API_KEY")),
+        "hf": bool(os.environ.get("HF_TOKEN")),
     }
 
 
