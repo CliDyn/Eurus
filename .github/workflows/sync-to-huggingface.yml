@@ -17,19 +17,25 @@ jobs:
       - name: Fetch all LFS objects
         run: git lfs pull
 
-      - name: Install git-xet and configure
-        env:
-          HF_TOKEN: ${{ secrets.HF_TOKEN }}
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/huggingface/xet-core/refs/heads/main/git_xet/install.sh | sudo sh
-          git xet install
-          git xet --version
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
       - name: Push to Hugging Face
         env:
           HF_TOKEN: ${{ secrets.HF_TOKEN }}
         run: |
-          pip install -U huggingface_hub hf_xet
-          export PATH="$HOME/.local/bin:$PATH"
-          huggingface-cli upload dmpantiu/Eurus . . --repo-type space --token $HF_TOKEN
-
+          pip install -U huggingface_hub
+          python -c "
+          from huggingface_hub import HfApi
+          import os
+          api = HfApi()
+          api.upload_folder(
+              folder_path='.',
+              repo_id='dmpantiu/Eurus',
+              repo_type='space',
+              token=os.environ['HF_TOKEN'],
+              ignore_patterns=['.git/*', '.github/*'],
+          )
+          print('Upload complete')
+          "
