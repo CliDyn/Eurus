@@ -25,6 +25,7 @@ from langchain.agents import create_agent
 
 # IMPORT FROM EURUS PACKAGE - SINGLE SOURCE OF TRUTH
 from eurus.config import CONFIG, AGENT_SYSTEM_PROMPT
+from eurus.retrieval import _arraylake_snippet
 from eurus.memory import get_memory, SmartConversationMemory  # Singleton for datasets, per-session for chat
 from eurus.tools import get_all_tools
 from eurus.tools.repl import PythonREPLTool
@@ -181,12 +182,14 @@ class AgentSession:
                 lambda: self._agent.invoke({"messages": self._messages}, config=config)
             )
 
-            # Update messages
+            # Only scan NEW messages from this turn
+            prev_count = len(self._messages)
             self._messages = result["messages"]
+            new_messages = self._messages[prev_count:]
             
-            # Parse messages to show tool calls made
+            # Parse NEW messages to show tool calls made
             tool_calls_made = []
-            for msg in self._messages:
+            for msg in new_messages:
                 if hasattr(msg, 'tool_calls') and msg.tool_calls:
                     for tc in msg.tool_calls:
                         tool_name = tc.get('name', 'unknown')
@@ -197,6 +200,24 @@ class AgentSession:
                 tools_str = ", ".join(tool_calls_made)
                 await stream_callback("status", f"🛠️ Used tools: {tools_str}")
                 await asyncio.sleep(0.5)
+
+            # Collect Arraylake snippet from NEW messages only
+            arraylake_snippets = []
+            for msg in new_messages:
+                if hasattr(msg, 'tool_calls') and msg.tool_calls:
+                    for tc in msg.tool_calls:
+                        if tc.get('name') == 'retrieve_era5_data':
+                            args = tc.get('args', {})
+                            arraylake_snippets.append(_arraylake_snippet(
+                                variable=args.get('variable_id', 'sst'),
+                                query_type=args.get('query_type', 'spatial'),
+                                start_date=args.get('start_date', ''),
+                                end_date=args.get('end_date', ''),
+                                min_lat=args.get('min_latitude', -90),
+                                max_lat=args.get('max_latitude', 90),
+                                min_lon=args.get('min_longitude', 0),
+                                max_lon=args.get('max_longitude', 360),
+                            ))
 
             # Extract response
             last_message = self._messages[-1]
@@ -243,6 +264,10 @@ class AgentSession:
                 else:
                     # Default to plot (png, jpg, etc.)
                     await stream_callback("plot", "", data=base64_data, path=filepath, code=code)
+
+            # Send Arraylake snippets AFTER response + plots exist in DOM
+            for snippet in arraylake_snippets:
+                await stream_callback("arraylake_snippet", snippet)
 
             # Save to memory
             self._conversation.add_message("assistant", response_text)

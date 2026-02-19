@@ -41,29 +41,32 @@ def _arraylake_snippet(
     min_lon: float,
     max_lon: float,
 ) -> str:
-    """Generate a self-contained Python snippet for direct Arraylake data access."""
+    """Generate a ready-to-paste Python snippet for direct Arraylake access."""
+    # Convert negative lons to 0-360 for ERA5
+    era5_min = min_lon % 360 if min_lon < 0 else min_lon
+    era5_max = max_lon % 360 if max_lon < 0 else max_lon
     return (
-        "# ── Direct Arraylake Retrieval (copy-paste into any Python env) ──\n"
-        "import os, xarray as xr\n"
-        "from arraylake import Client\n"
-        "\n"
-        "client = Client(token=os.environ['ARRAYLAKE_API_KEY'])\n"
-        f"repo   = client.get_repo('{CONFIG.data_source}')\n"
-        "session = repo.readonly_session('main')\n"
-        "\n"
+        f"\n📦 Reproduce this download yourself (copy-paste into Jupyter):\n"
+        f"```python\n"
+        f"import os, xarray as xr\n"
+        f"from arraylake import Client\n"
+        f"\n"
+        f"client  = Client(token=os.environ['ARRAYLAKE_API_KEY'])\n"
+        f"repo    = client.get_repo('{CONFIG.data_source}')\n"
+        f"session = repo.readonly_session('main')\n"
+        f"\n"
         f"ds = xr.open_dataset(session.store, engine='zarr',\n"
         f"                     consolidated=False, zarr_format=3,\n"
         f"                     chunks=None, group='{query_type}')\n"
-        "\n"
+        f"\n"
         f"subset = ds['{variable}'].sel(\n"
         f"    time=slice('{start_date}', '{end_date}'),\n"
-        f"    latitude=slice({max_lat}, {min_lat}),   # ERA5: descending lat\n"
-        f"    longitude=slice({min_lon}, {max_lon}),\n"
-        ")\n"
-        "\n"
-        "# Compute & save locally\n"
+        f"    latitude=slice({max_lat}, {min_lat}),   # ERA5: descending\n"
+        f"    longitude=slice({era5_min}, {era5_max}),\n"
+        f")\n"
+        f"\n"
         f"subset.load().to_dataset(name='{variable}').to_zarr('my_data.zarr', mode='w')\n"
-        "# ────────────────────────────────────────────────────────────────\n"
+        f"```"
     )
 
 

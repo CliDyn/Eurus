@@ -430,6 +430,10 @@ class EurusChat {
                 this.sendBtn.disabled = false;
                 break;
 
+            case 'arraylake_snippet':
+                this.addArraylakeSnippet(data.content);
+                break;
+
             case 'error':
                 this.showError(data.content);
                 this.sendBtn.disabled = false;
@@ -675,6 +679,105 @@ class EurusChat {
             this.appendToAssistantMessage(content);
         }
         this.currentAssistantMessage = null;
+    }
+
+    addArraylakeSnippet(snippetText) {
+        // Find the latest assistant message
+        const messages = this.messagesContainer.querySelectorAll('.assistant-message');
+        const targetMsg = messages.length > 0 ? messages[messages.length - 1] : null;
+        if (!targetMsg) return;
+
+        // Strip markdown fences for raw code display
+        let cleanCode = snippetText
+            .replace(/^\n?📦[^\n]*\n/, '')
+            .replace(/^```python\n?/, '')
+            .replace(/\n?```$/, '')
+            .trim();
+
+        // Find the last plot figure's action bar to add button inline
+        const figures = targetMsg.querySelectorAll('.plot-figure');
+        const lastFigure = figures.length > 0 ? figures[figures.length - 1] : null;
+        const actionsDiv = lastFigure ? lastFigure.querySelector('.plot-actions') : null;
+
+        if (actionsDiv) {
+            // Add button inline with Enlarge/Download/Show Code
+            const btn = document.createElement('button');
+            btn.className = 'code-btn';
+            btn.title = 'Arraylake Code';
+            btn.textContent = '📦 Arraylake Code';
+            actionsDiv.appendChild(btn);
+
+            // Add code block to figure (same pattern as Show Code)
+            const codeDiv = document.createElement('div');
+            codeDiv.className = 'plot-code';
+            codeDiv.style.display = 'none';
+
+            const pre = document.createElement('pre');
+            const codeEl = document.createElement('code');
+            codeEl.className = 'language-python hljs';
+            try {
+                codeEl.innerHTML = hljs.highlight(cleanCode, { language: 'python' }).value;
+            } catch (e) {
+                codeEl.textContent = cleanCode;
+            }
+            pre.appendChild(codeEl);
+            codeDiv.appendChild(pre);
+
+            // Copy button inside code block
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'copy-snippet-btn';
+            copyBtn.textContent = 'Copy Code';
+            copyBtn.addEventListener('click', () => {
+                navigator.clipboard.writeText(cleanCode).then(() => {
+                    copyBtn.textContent = '✓ Copied!';
+                    setTimeout(() => copyBtn.textContent = 'Copy Code', 2000);
+                });
+            });
+            codeDiv.appendChild(copyBtn);
+            lastFigure.appendChild(codeDiv);
+
+            // Toggle
+            btn.addEventListener('click', () => {
+                if (codeDiv.style.display === 'none') {
+                    codeDiv.style.display = 'block';
+                    btn.textContent = '📦 Hide Arraylake';
+                } else {
+                    codeDiv.style.display = 'none';
+                    btn.textContent = '📦 Arraylake Code';
+                }
+            });
+        } else {
+            // No plot figure — add as standalone section under the message
+            const wrapper = document.createElement('div');
+            wrapper.className = 'arraylake-snippet-section';
+            wrapper.innerHTML = `
+                <div class="plot-actions">
+                    <button class="code-btn" title="Arraylake Code">📦 Arraylake Code</button>
+                </div>
+                <div class="plot-code" style="display: none;">
+                    <pre><code class="language-python hljs"></code></pre>
+                </div>
+            `;
+            const codeEl = wrapper.querySelector('code');
+            try {
+                codeEl.innerHTML = hljs.highlight(cleanCode, { language: 'python' }).value;
+            } catch (e) {
+                codeEl.textContent = cleanCode;
+            }
+            const btn = wrapper.querySelector('.code-btn');
+            const codeDiv = wrapper.querySelector('.plot-code');
+            btn.addEventListener('click', () => {
+                if (codeDiv.style.display === 'none') {
+                    codeDiv.style.display = 'block';
+                    btn.textContent = '📦 Hide Arraylake';
+                } else {
+                    codeDiv.style.display = 'none';
+                    btn.textContent = '📦 Arraylake Code';
+                }
+            });
+            targetMsg.appendChild(wrapper);
+        }
+        this.scrollToBottom();
     }
 
     showError(message) {
