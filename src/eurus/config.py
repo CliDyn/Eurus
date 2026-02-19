@@ -506,7 +506,7 @@ class AgentConfig:
     # Data Settings
     data_source: str = "earthmover-public/era5-surface-aws"
     default_query_type: str = "temporal"
-    max_download_size_gb: float = 5.0
+    max_download_size_gb: float = 15.0
 
     # Retrieval Settings
     max_retries: int = 5
