@@ -310,10 +310,14 @@ _sessions: Dict[str, AgentSession] = {}
 
 
 def create_session(connection_id: str, api_keys: Optional[Dict[str, str]] = None) -> AgentSession:
-    """Create a new session for a connection."""
+    """Create a new session for a connection (reuses if already ready)."""
     if connection_id in _sessions:
-        # Close existing session first
-        _sessions[connection_id].close()
+        existing = _sessions[connection_id]
+        if existing.is_ready():
+            logger.info(f"Reusing existing ready session for: {connection_id}")
+            return existing
+        # Close broken session before replacing
+        existing.close()
     session = AgentSession(api_keys=api_keys)
     _sessions[connection_id] = session
     logger.info(f"Created session for connection: {connection_id}")
