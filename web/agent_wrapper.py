@@ -216,12 +216,43 @@ class AgentSession:
                 await asyncio.sleep(0.5)
 
             # Collect Arraylake snippet from NEW messages only
+            # Only emit ONE snippet per unique (variable, region) — skip failed calls
             arraylake_snippets = []
-            for msg in new_messages:
+            seen_snippet_keys = set()
+            for i, msg in enumerate(new_messages):
                 if hasattr(msg, 'tool_calls') and msg.tool_calls:
                     for tc in msg.tool_calls:
                         if tc.get('name') == 'retrieve_era5_data':
+                            # Check if tool call succeeded by looking at the next message
+                            # (ToolMessage with same tool_call_id)
+                            tc_id = tc.get('id', '')
+                            succeeded = True
+                            for later_msg in new_messages[i+1:]:
+                                if (hasattr(later_msg, 'tool_call_id') and
+                                        later_msg.tool_call_id == tc_id):
+                                    content = getattr(later_msg, 'content', '') or ''
+                                    if any(kw in content.lower() for kw in
+                                           ['error', 'failed', 'exception', 'limit',
+                                            'exceeded', 'rejected', 'too large']):
+                                        succeeded = False
+                                    break
+
+                            if not succeeded:
+                                continue
+
                             args = tc.get('args', {})
+                            # Dedup key: variable + rounded region
+                            dedup_key = (
+                                args.get('variable_id', 'sst'),
+                                round(args.get('min_latitude', -90)),
+                                round(args.get('max_latitude', 90)),
+                                round(args.get('min_longitude', 0)),
+                                round(args.get('max_longitude', 360)),
+                            )
+                            if dedup_key in seen_snippet_keys:
+                                continue
+                            seen_snippet_keys.add(dedup_key)
+
                             arraylake_snippets.append(_arraylake_snippet(
                                 variable=args.get('variable_id', 'sst'),
                                 query_type=args.get('query_type', 'spatial'),
