@@ -95,10 +95,11 @@ async def websocket_chat(websocket: WebSocket):
             await manager.send_json(websocket, {"type": "thinking"})
 
             try:
-                # Get session for this connection
+                # Get session for this connection (auto-recreate if lost)
                 session = get_session(connection_id)
                 if not session:
-                    raise RuntimeError("Session not found")
+                    logger.warning(f"Session lost for {connection_id[:8]}, recreating...")
+                    session = create_session(connection_id)
 
                 # Callback for streaming
                 async def stream_callback(event_type: str, content: str, **kwargs):

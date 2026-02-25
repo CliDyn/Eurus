@@ -106,8 +106,9 @@ class EurusChat {
     }
 
     autoSendSessionKeys() {
-        // After WS connects, if we have session-stored keys and server has none, auto-send them
-        if (this.serverKeysPresent.openai || this.keysConfigured) return;
+        // After WS (re)connects, resend saved keys so the new server-side session gets them.
+        // Only skip if the server has pre-configured env keys (not user-provided).
+        if (this.serverKeysPresent.openai) return;
         const saved = sessionStorage.getItem('eurus-keys');
         if (!saved) return;
         try {
@@ -192,11 +193,13 @@ class EurusChat {
                 this.reconnectAttempts = 0;
                 this.updateConnectionStatus('connected');
 
+                // Always resend keys on (re)connect — server session may have been
+                // destroyed on disconnect, so keys stored in sessionStorage must be
+                // re-sent even if keysConfigured is true from the previous session.
+                this.autoSendSessionKeys();
+
                 if (this.serverKeysPresent.openai || this.keysConfigured) {
                     this.sendBtn.disabled = false;
-                } else {
-                    // Auto-send keys from sessionStorage on reconnect/refresh
-                    this.autoSendSessionKeys();
                 }
             };
 
@@ -700,17 +703,47 @@ class EurusChat {
         const actionsDiv = lastFigure ? lastFigure.querySelector('.plot-actions') : null;
 
         if (actionsDiv) {
+            // Check if an Arraylake button already exists on this figure
+            const existingBtn = actionsDiv.querySelector('.arraylake-btn');
+            if (existingBtn) {
+                // Append new snippet to the existing code block
+                const existingCodeDiv = lastFigure.querySelector('.arraylake-code-block');
+                if (existingCodeDiv) {
+                    const codeEl = existingCodeDiv.querySelector('code');
+                    const prevRaw = existingCodeDiv.getAttribute('data-raw-code') || '';
+                    const combined = prevRaw + '\n\n# ---\n\n' + cleanCode;
+                    existingCodeDiv.setAttribute('data-raw-code', combined);
+                    try {
+                        codeEl.innerHTML = hljs.highlight(combined, { language: 'python' }).value;
+                    } catch (e) {
+                        codeEl.textContent = combined;
+                    }
+                    // Update copy button target
+                    const copyBtn = existingCodeDiv.querySelector('.copy-snippet-btn');
+                    if (copyBtn) {
+                        copyBtn.onclick = () => {
+                            navigator.clipboard.writeText(combined).then(() => {
+                                copyBtn.textContent = '✓ Copied!';
+                                setTimeout(() => copyBtn.textContent = 'Copy Code', 2000);
+                            });
+                        };
+                    }
+                }
+                return;
+            }
+
             // Add button inline with Enlarge/Download/Show Code
             const btn = document.createElement('button');
-            btn.className = 'code-btn';
+            btn.className = 'code-btn arraylake-btn';
             btn.title = 'Arraylake Code';
             btn.textContent = '📦 Arraylake Code';
             actionsDiv.appendChild(btn);
 
             // Add code block to figure (same pattern as Show Code)
             const codeDiv = document.createElement('div');
-            codeDiv.className = 'plot-code';
+            codeDiv.className = 'plot-code arraylake-code-block';
             codeDiv.style.display = 'none';
+            codeDiv.setAttribute('data-raw-code', cleanCode);
 
             const pre = document.createElement('pre');
             const codeEl = document.createElement('code');
@@ -728,7 +761,8 @@ class EurusChat {
             copyBtn.className = 'copy-snippet-btn';
             copyBtn.textContent = 'Copy Code';
             copyBtn.addEventListener('click', () => {
-                navigator.clipboard.writeText(cleanCode).then(() => {
+                const rawCode = codeDiv.getAttribute('data-raw-code') || cleanCode;
+                navigator.clipboard.writeText(rawCode).then(() => {
                     copyBtn.textContent = '✓ Copied!';
                     setTimeout(() => copyBtn.textContent = 'Copy Code', 2000);
                 });
@@ -747,17 +781,35 @@ class EurusChat {
                 }
             });
         } else {
-            // No plot figure — add as standalone section under the message
+            // No plot figure — check if standalone section already exists
+            const existingWrapper = targetMsg.querySelector('.arraylake-snippet-section');
+            if (existingWrapper) {
+                // Append to existing standalone snippet
+                const codeEl = existingWrapper.querySelector('code');
+                const existingCodeDiv = existingWrapper.querySelector('.plot-code');
+                const prevRaw = existingCodeDiv.getAttribute('data-raw-code') || '';
+                const combined = prevRaw + '\n\n# ---\n\n' + cleanCode;
+                existingCodeDiv.setAttribute('data-raw-code', combined);
+                try {
+                    codeEl.innerHTML = hljs.highlight(combined, { language: 'python' }).value;
+                } catch (e) {
+                    codeEl.textContent = combined;
+                }
+                return;
+            }
+
             const wrapper = document.createElement('div');
             wrapper.className = 'arraylake-snippet-section';
             wrapper.innerHTML = `
                 <div class="plot-actions">
-                    <button class="code-btn" title="Arraylake Code">📦 Arraylake Code</button>
+                    <button class="code-btn arraylake-btn" title="Arraylake Code">📦 Arraylake Code</button>
                 </div>
                 <div class="plot-code" style="display: none;">
                     <pre><code class="language-python hljs"></code></pre>
                 </div>
             `;
+            const codeDivEl = wrapper.querySelector('.plot-code');
+            codeDivEl.setAttribute('data-raw-code', cleanCode);
             const codeEl = wrapper.querySelector('code');
             try {
                 codeEl.innerHTML = hljs.highlight(cleanCode, { language: 'python' }).value;

@@ -134,6 +134,13 @@ class AgentSession:
         """Check if the agent is ready."""
         return self._initialized and self._agent is not None
 
+    def reinitialize(self):
+        """Retry initialization (e.g., after transient failure)."""
+        logger.warning("Attempting agent reinitialization...")
+        self._initialized = False
+        self._agent = None
+        self._initialize()
+
     def clear_messages(self):
         """Clear conversation messages."""
         self._messages = []
@@ -157,7 +164,11 @@ class AgentSession:
         Process a user message and stream the response.
         """
         if not self.is_ready():
-            raise RuntimeError("Agent not initialized")
+            # Try to reinitialize once before giving up
+            logger.warning("Agent not ready, attempting reinitialization...")
+            self.reinitialize()
+            if not self.is_ready():
+                raise RuntimeError("Agent not initialized")
 
         # Clear any old plots from queue
         self.get_pending_plots()
@@ -176,6 +187,9 @@ class AgentSession:
             
             # Stream status updates while agent is working
             await stream_callback("status", "🤖 Processing with AI...")
+
+            # Save message state before invoke (protect against corruption)
+            messages_backup = list(self._messages)
             
             result = await asyncio.get_event_loop().run_in_executor(
                 None,
@@ -275,6 +289,8 @@ class AgentSession:
             return response_text
 
         except Exception as e:
+            # Restore clean message state to prevent corruption on next call
+            self._messages = messages_backup
             logger.exception(f"Error processing message: {e}")
             raise
 
