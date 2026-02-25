@@ -98,8 +98,13 @@ async def websocket_chat(websocket: WebSocket):
                 # Get session for this connection (auto-recreate if lost)
                 session = get_session(connection_id)
                 if not session:
-                    logger.warning(f"Session lost for {connection_id[:8]}, recreating...")
-                    session = create_session(connection_id)
+                    logger.warning(f"Session lost for {connection_id[:8]}, requesting keys...")
+                    # Ask client to resend keys (e.g., after container restart)
+                    await manager.send_json(websocket, {
+                        "type": "request_keys",
+                        "reason": "Session expired, please reconnect."
+                    })
+                    continue
 
                 # Callback for streaming
                 async def stream_callback(event_type: str, content: str, **kwargs):

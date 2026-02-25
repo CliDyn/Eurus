@@ -385,6 +385,7 @@ class EurusChat {
         if (!message || !this.isConnected) return;
 
         this.addUserMessage(message);
+        this._lastSentMessage = message;
         this.ws.send(JSON.stringify({ message }));
 
         this.messageInput.value = '';
@@ -403,6 +404,22 @@ class EurusChat {
                     this.saveKeysBtn.disabled = false;
                     this.saveKeysBtn.textContent = 'Connect';
                     this.showError('Failed to initialize agent. Check your API keys.');
+                }
+                break;
+
+            case 'request_keys':
+                // Server lost our session (e.g., container restart) — resend keys
+                console.warn('Server requested keys:', data.reason);
+                this.removeThinkingIndicator();
+                this.autoSendSessionKeys();
+                // Retry the last message after a short delay for session init
+                if (this._lastSentMessage) {
+                    setTimeout(() => {
+                        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                            this.ws.send(JSON.stringify({ message: this._lastSentMessage }));
+                            this.showThinkingIndicator();
+                        }
+                    }, 3000);
                 }
                 break;
 
