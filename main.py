@@ -285,12 +285,6 @@ def main():
     print(BANNER)
 
     # Check for required API keys
-    if not os.environ.get("ARRAYLAKE_API_KEY"):
-        print("ERROR: ARRAYLAKE_API_KEY not found in environment.")
-        print("Please add it to your .env file:")
-        print("  ARRAYLAKE_API_KEY=your_api_key_here")
-        sys.exit(1)
-
     if not os.environ.get("OPENAI_API_KEY"):
         print("ERROR: OPENAI_API_KEY not found in environment.")
         print("Please add it to your .env file:")

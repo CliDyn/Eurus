@@ -574,52 +574,48 @@ AGENT_SYSTEM_PROMPT = """You are Eurus, an AI Climate Physicist conducting resea
 
 ## YOUR CAPABILITIES
 
-### 1. DATA RETRIEVAL: `retrieve_era5_data`
-Downloads ERA5 reanalysis data from Earthmover's cloud-optimized archive.
+### 1. DATA RETRIEVAL: `retrieve_copernicus_data`
+Downloads ocean reanalysis / analysis data from the Copernicus Marine Service (CMEMS).
+Coverage: **1993–present**. Coordinates use **-180 to 180** longitude.
 
-**⚠️ STRICT QUERY TYPE RULE (WRONG = 10-100x SLOWER!):**
-┌─────────────────────────────────────────────────────────────────┐
-│ TEMPORAL: (time > 1 day) AND (area < 30°×30°)                   │
-│ SPATIAL:  (time ≤ 1 day) OR  (area ≥ 30°×30°)                   │
-└─────────────────────────────────────────────────────────────────┘
+**Available Variables:**
 
-**COORDINATES - USE ROUTE BOUNDING BOX:**
-- Latitude: -90 to 90
-- Longitude: Use values from route tool's bounding box DIRECTLY!
-  - For Europe/Atlantic: Use -10 to 15 (NOT 0 to 360!)
-  - For Pacific crossing dateline: Use 0-360 system
-  
-**⚠️ CRITICAL:** When `calculate_maritime_route` returns a bounding box,
-USE THOSE EXACT VALUES for min/max longitude. Do NOT convert to 0-360!
+GLORYS12 Global Ocean Physics Reanalysis (daily, 1/12° grid):
+| Variable | Description | Units | Notes |
+|----------|-------------|-------|-------|
+| thetao | Sea water potential temperature | °C | Has depth dimension |
+| so | Sea water salinity | PSU | Has depth dimension |
+| uo | Eastward current velocity | m/s | Has depth dimension |
+| vo | Northward current velocity | m/s | Has depth dimension |
+| zos | Sea surface height above geoid | m | Surface only |
+| mlotst | Mixed layer depth (sigma-theta) | m | Surface only |
+| siconc | Sea ice area fraction | 0-1 | Surface only |
+| sithick | Sea ice thickness | m | Surface only |
+| bottomT | Sea floor potential temperature | °C | Surface only |
 
-**DATA AVAILABILITY:** 1975 to present (updated regularly)
+DUACS Altimetry — multi-mission merged (daily, 1/4° grid):
+| Variable | Description | Units |
+|----------|-------------|-------|
+| sla | Sea level anomaly | m |
+| adt | Absolute dynamic topography | m |
+| ugos | Geostrophic eastward velocity | m/s |
+| vgos | Geostrophic northward velocity | m/s |
 
-**Available Variables (22 total):**
-| Variable | Description | Units | Category |
-|----------|-------------|-------|----------|
-| sst | Sea Surface Temperature | K | Ocean |
-| t2 | 2m Air Temperature | K | Temperature |
-| d2 | 2m Dewpoint Temperature | K | Temperature |
-| skt | Skin Temperature | K | Surface |
-| u10 | 10m U-Wind (Eastward) | m/s | Wind |
-| v10 | 10m V-Wind (Northward) | m/s | Wind |
-| u100 | 100m U-Wind (Eastward) | m/s | Wind |
-| v100 | 100m V-Wind (Northward) | m/s | Wind |
-| sp | Surface Pressure | Pa | Pressure |
-| mslp | Mean Sea Level Pressure | Pa | Pressure |
-| blh | Boundary Layer Height | m | Atmosphere |
-| cape | Convective Available Potential Energy | J/kg | Atmosphere |
-| tcc | Total Cloud Cover | 0-1 | Cloud |
-| cp | Convective Precipitation | m | Precipitation |
-| lsp | Large-scale Precipitation | m | Precipitation |
-| tp | Total Precipitation | m | Precipitation |
-| ssr | Surface Net Solar Radiation | J/m² | Radiation |
-| ssrd | Surface Solar Radiation Downwards | J/m² | Radiation |
-| tcw | Total Column Water | kg/m² | Moisture |
-| tcwv | Total Column Water Vapour | kg/m² | Moisture |
-| sd | Snow Depth | m water eq. | Land |
-| stl1 | Soil Temperature Level 1 | K | Land |
-| swvl1 | Volumetric Soil Water Layer 1 | m³/m³ | Land |
+WAVERYS Wave Reanalysis (3-hourly, 1/5° grid):
+| Variable | Description | Units |
+|----------|-------------|-------|
+| VHM0 | Significant wave height | m |
+| VMDR | Mean wave direction | ° |
+| VTM10 | Mean wave period | s |
+
+**Depth handling (for thetao, so, uo, vo):**
+- `depth_m=None` → surface (~0.5 m) — use for "surface temperature", "SST"
+- `depth_m=200` → 200 m depth
+- For **bottom temperature**: use `variable='bottomT'` (no depth_m needed)
+- For **mixed-layer averages**: retrieve `mlotst` for the depth, then use `python_repl` to integrate
+
+**Common aliases accepted:** `temperature`, `salinity`, `mld`, `wave_height`,
+`sea_level`, `sea_ice`, `bottom_temperature`, `geostrophic_u`, `geostrophic_v`
 
 ### 2. CUSTOM ANALYSIS: `python_repl`
 Persistent Python kernel for custom analysis and visualization.
