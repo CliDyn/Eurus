@@ -58,6 +58,7 @@ from eurus.config import (
 )
 from eurus.memory import get_memory
 from eurus.tools.era5 import retrieve_era5_data, ERA5RetrievalArgs
+from eurus.tools.analysis_guide import get_analysis_guide, ANALYSIS_GUIDES
 
 # Import Maritime Routing tool
 from eurus.tools.routing import (
@@ -120,6 +121,39 @@ async def list_tools() -> list[Tool]:
                 "additionalProperties": False
             }
         ),
+        Tool(
+            name="get_analysis_guide",
+            description=(
+                "Get methodological guidance for climate data analysis and visualization.\n\n"
+                "Returns workflow steps, quality checklists, common pitfalls, and best practices.\n\n"
+                "TOPICS:\n"
+                "- Data: load_data, spatial_subset, temporal_subset\n"
+                "- Statistics: anomalies, zscore, trend_analysis, eof_analysis\n"
+                "- Advanced: correlation_analysis, composite_analysis, diurnal_cycle, "
+                "seasonal_decomposition, spectral_analysis, spatial_statistics, "
+                "multi_variable, climatology_normals\n"
+                "- Climate: climate_indices, extremes, drought_analysis, heatwave_detection, "
+                "atmospheric_rivers, blocking_events\n"
+                "- Domain: energy_budget, wind_energy, moisture_budget, convective_potential, snow_cover\n"
+                "- Visualization: visualization_spatial, visualization_timeseries, "
+                "visualization_anomaly_map, visualization_wind, visualization_comparison, "
+                "visualization_profile, visualization_distribution, visualization_animation, "
+                "visualization_dashboard, visualization_contour, visualization_correlation_map\n"
+                "- Maritime: maritime_route, maritime_visualization\n\n"
+                "CALL THIS BEFORE writing analysis/plotting code!"
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "topic": {
+                        "type": "string",
+                        "description": "Analysis topic to get guidance for",
+                        "enum": sorted(ANALYSIS_GUIDES.keys())
+                    }
+                },
+                "required": ["topic"]
+            }
+        ),
     ]
 
     # ========== MARITIME ROUTING TOOL (if dependencies available) ==========
@@ -137,7 +171,7 @@ async def list_tools() -> list[Tool]:
                     "WORKFLOW:\n"
                     "1. Call this tool → get waypoints + instructions\n"
                     "2. Download ERA5 wind data (u10, v10) for the region\n"
-                    "3. Call get_visualization_guide(viz_type='maritime_risk_assessment')\n"
+                    "3. Call get_analysis_guide(topic='maritime_visualization')\n"
                     "4. Execute analysis in python_repl"
                 ),
                 inputSchema=RouteArgs.model_json_schema()
@@ -179,6 +213,10 @@ async def call_tool(name: str, arguments: dict[str, Any]) -> CallToolResult:
         elif name == "list_cached_datasets":
             memory = get_memory()
             result = memory.list_datasets()
+            return CallToolResult(content=[TextContent(type="text", text=result)])
+
+        elif name == "get_analysis_guide":
+            result = get_analysis_guide(arguments["topic"])
             return CallToolResult(content=[TextContent(type="text", text=result)])
 
         # ========== MARITIME ROUTING HANDLER ==========

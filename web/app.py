@@ -10,6 +10,9 @@ import logging
 from pathlib import Path
 from contextlib import asynccontextmanager
 
+from dotenv import load_dotenv
+load_dotenv()  # Load .env EARLY so /api/keys-status sees the keys
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
