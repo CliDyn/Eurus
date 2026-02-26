@@ -68,3 +68,6 @@ deep_searches/
 # Generated project dumps
 full_project.txt
 src_structure.txt
+# pixi environments
+.pixi/*
+!.pixi/config.toml

@@ -66,13 +66,6 @@ def setup_logging(mode: str = "web", level: int = logging.DEBUG) -> logging.Logg
     console_handler.setFormatter(console_formatter)
     root_logger.addHandler(console_handler)
     
-    # Log startup info
-    logger = logging.getLogger("eurus.logging")
-    logger.info(f"=" * 80)
-    logger.info(f"EURUS {mode.upper()} STARTING")
-    logger.info(f"Log file: {log_file}")
-    logger.info(f"=" * 80)
-    
     # Reduce noise from external libraries
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)

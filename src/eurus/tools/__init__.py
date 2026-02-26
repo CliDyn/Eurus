@@ -14,7 +14,8 @@ from typing import List
 from langchain_core.tools import BaseTool
 
 # Import core tools
-from .era5 import era5_tool
+# from .era5 import era5_tool  # ERA5/Arraylake backend (unwired for Copernicus MVP)
+from .copernicus import copernicus_tool
 from .repl import PythonREPLTool
 from .routing import routing_tool
 from .analysis_guide import analysis_guide_tool, visualization_guide_tool
@@ -43,7 +44,7 @@ def get_all_tools(
     """
     # Core tools: data retrieval + Python analysis
     tools = [
-        era5_tool,
+        copernicus_tool,
         PythonREPLTool(working_dir=".")
     ]
 
@@ -57,7 +58,7 @@ def get_all_tools(
         if HAS_ROUTING_DEPS:
             tools.append(routing_tool)
         else:
-            print("WARNING: Routing tools requested but dependencies (scgraph) are missing.")
+            pass  # scgraph not installed; routing silently unavailable
 
     return tools
 
