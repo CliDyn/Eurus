@@ -143,7 +143,7 @@ def generate_filename(
     clean_var   = variable.replace("_", "").lower()
     clean_start = start.replace("-", "")
     clean_end   = end.replace("-", "")
-    depth_tag   = f"_d{depth_m:.0f}m" if depth_m is not None else "_surf"
+    depth_tag   = f"_d{depth_m:.0f}m" if depth_m is not None else "_fullcolumn"
     if region:
         geo_tag = region.lower()
     else:
@@ -290,7 +290,6 @@ def retrieve_copernicus_data(
     logger.info("Auto-selected service=%s (time=%dd, area=%.0f sq°)", service, time_days, area)
 
     # Build open_dataset kwargs
-    depth_val = effective_depth if effective_depth is not None else 0.5
     kwargs: dict = dict(
         dataset_id        = var_info.dataset_id,
         variables         = [var_info.var_name],
@@ -302,9 +301,9 @@ def retrieve_copernicus_data(
         end_datetime      = end_date,
         service           = service,
     )
-    if var_info.has_depth:
-        kwargs["minimum_depth"] = depth_val
-        kwargs["maximum_depth"] = depth_val
+    if var_info.has_depth and effective_depth is not None:
+        kwargs["minimum_depth"] = effective_depth
+        kwargs["maximum_depth"] = effective_depth
 
     # Download with retry
     for attempt in range(3):

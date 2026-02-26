@@ -59,7 +59,9 @@ class CopernicusRetrievalArgs(BaseModel):
         ge=0.0,
         description=(
             "Depth in metres for 3-D variables (thetao, so, uo, vo). "
-            "None = surface (~0.5 m). Ignored for 2-D variables. "
+            "None = full water column (all depth levels). "
+            "Use 0.5 to retrieve only the surface layer (~0.5 m). "
+            "Ignored for 2-D variables. "
             "For bottom temperature use variable='bottomT' instead. "
             "For mixed-layer averages retrieve mlotst first, then use python_repl."
         )
@@ -111,7 +113,8 @@ copernicus_tool = StructuredTool.from_function(
         "Retrieve ocean reanalysis / analysis data from the Copernicus Marine Service (CMEMS).\n\n"
         "Covers 1993-present. Datasets: GLORYS12 physics reanalysis, DUACS altimetry, WAVERYS waves.\n\n"
         "Provide variable_id, date range, and bounding box. "
-        "For depth variables (thetao, so, uo, vo) use depth_m=None for surface or specify metres. "
+        "For depth variables (thetao, so, uo, vo): depth_m=None retrieves the full water column; "
+        "use depth_m=0.5 for surface only, or specify a depth in metres for a single level. "
         "Returns local Zarr file path. Load with: xr.open_dataset('PATH', engine='zarr')"
     ),
     args_schema = CopernicusRetrievalArgs,
