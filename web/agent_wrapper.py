@@ -26,6 +26,7 @@ from langchain.agents import create_agent
 # IMPORT FROM EURUS PACKAGE - SINGLE SOURCE OF TRUTH
 from eurus.config import CONFIG, AGENT_SYSTEM_PROMPT
 from eurus.retrieval import _arraylake_snippet
+from eurus.tools.era5 import _auto_detect_query_type
 from eurus.memory import get_memory, SmartConversationMemory  # Singleton for datasets, per-session for chat
 from eurus.tools import get_all_tools
 from eurus.tools.repl import PythonREPLTool
@@ -255,7 +256,14 @@ class AgentSession:
 
                             arraylake_snippets.append(_arraylake_snippet(
                                 variable=args.get('variable_id', 'sst'),
-                                query_type=args.get('query_type', 'spatial'),
+                                query_type=_auto_detect_query_type(
+                                    start_date=args.get('start_date', ''),
+                                    end_date=args.get('end_date', ''),
+                                    min_lat=args.get('min_latitude', -90),
+                                    max_lat=args.get('max_latitude', 90),
+                                    min_lon=args.get('min_longitude', 0),
+                                    max_lon=args.get('max_longitude', 360),
+                                ),
                                 start_date=args.get('start_date', ''),
                                 end_date=args.get('end_date', ''),
                                 min_lat=args.get('min_latitude', -90),
