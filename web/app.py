@@ -15,7 +15,7 @@ load_dotenv()  # Load .env EARLY so /api/keys-status sees the keys
 
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+from fastapi.middleware.cors import CORSMiddleware
 
 # Add parent and src directory to path for eurus package
 PROJECT_ROOT = Path(__file__).parent.parent
@@ -67,6 +67,15 @@ def create_app() -> FastAPI:
         description="Interactive web interface for ERA5 climate data analysis",
         version="1.0.0",
         lifespan=lifespan,
+    )
+
+    # CORS — allow React dev server
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
     # Mount static files

@@ -1,0 +1,90 @@
+/* ── API Keys Panel ──────────────────────── */
+.keys-panel {
+    margin: 1rem 2rem;
+    padding: 1.2rem;
+    background: var(--glass);
+    border: 1px solid rgba(251, 191, 36, 0.15);
+    border-radius: var(--radius);
+    backdrop-filter: blur(12px);
+    animation: fadeIn 0.3s ease;
+}
+
+.keys-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--warning);
+    margin-bottom: 0.5rem;
+}
+
+.keys-note {
+    font-size: 0.78rem;
+    color: var(--text-3);
+    margin-bottom: 0.85rem;
+    line-height: 1.5;
+}
+
+.keys-field {
+    margin-bottom: 0.65rem;
+}
+
+.keys-field label {
+    display: block;
+    font-size: 0.78rem;
+    font-weight: 500;
+    color: var(--text-2);
+    margin-bottom: 0.3rem;
+}
+
+.keys-field .required {
+    color: var(--danger);
+}
+
+.keys-field input {
+    width: 100%;
+    padding: 0.5rem 0.7rem;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm);
+    color: var(--text-1);
+    font-size: 0.85rem;
+    font-family: inherit;
+    outline: none;
+    transition: all 0.2s;
+}
+
+.keys-field input:focus {
+    border-color: rgba(109, 92, 255, 0.4);
+    box-shadow: 0 0 0 3px rgba(109, 92, 255, 0.08);
+}
+
+.keys-field input::placeholder {
+    color: var(--text-3);
+}
+
+.keys-submit {
+    width: 100%;
+    padding: 0.55rem;
+    background: linear-gradient(135deg, var(--accent), #8b5cf6);
+    border: none;
+    border-radius: var(--radius-sm);
+    color: #fff;
+    font-size: 0.85rem;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.25s;
+    box-shadow: 0 2px 12px var(--accent-glow);
+    margin-top: 0.3rem;
+}
+
+.keys-submit:hover:not(:disabled) {
+    filter: brightness(1.12);
+}
+
+.keys-submit:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}

@@ -1,0 +1,326 @@
+/* ── MessageBubble ────────────────────────── */
+.bubble-row {
+    display: flex;
+    margin-bottom: 1.1rem;
+    animation: bubbleIn 0.35s ease;
+}
+
+@keyframes bubbleIn {
+    from {
+        opacity: 0;
+        transform: translateY(8px);
+    }
+
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+.bubble-row.user {
+    justify-content: flex-end;
+}
+
+.bubble-row.assistant {
+    justify-content: flex-start;
+}
+
+.bubble {
+    max-width: 75%;
+    padding: 0.9rem 1.15rem;
+    border-radius: var(--radius);
+    line-height: 1.6;
+    font-size: 0.9rem;
+    word-break: break-word;
+    position: relative;
+}
+
+/* user */
+.bubble-user {
+    background: linear-gradient(135deg, var(--accent), #8b5cf6);
+    color: #fff;
+    border-bottom-right-radius: 4px;
+    box-shadow: 0 4px 20px var(--accent-glow);
+}
+
+/* assistant */
+.bubble-assistant {
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    color: var(--text-1);
+    border-bottom-left-radius: 4px;
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+}
+
+/* tool label */
+.tool-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 0.72rem;
+    font-weight: 500;
+    color: var(--accent-2);
+    background: rgba(56, 189, 248, 0.08);
+    border: 1px solid rgba(56, 189, 248, 0.12);
+    border-radius: 100px;
+    padding: 0.2rem 0.6rem;
+    margin-bottom: 0.45rem;
+    letter-spacing: 0.02em;
+}
+
+/* status text */
+.status-text {
+    font-size: 0.8rem;
+    color: var(--text-2);
+    margin-bottom: 0.35rem;
+    font-style: italic;
+}
+
+/* markdown prose */
+.bubble p {
+    margin: 0.3em 0;
+}
+
+.bubble pre {
+    background: rgba(0, 0, 0, 0.4);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm);
+    padding: 0.8rem;
+    overflow-x: auto;
+    font-size: 0.82rem;
+    margin: 0.55rem 0;
+}
+
+.bubble code {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 0.82rem;
+}
+
+.bubble :not(pre)>code {
+    background: rgba(109, 92, 255, 0.15);
+    padding: 0.12em 0.35em;
+    border-radius: 4px;
+    font-size: 0.82rem;
+}
+
+.bubble table {
+    border-collapse: collapse;
+    margin: 0.5rem 0;
+    width: 100%;
+    font-size: 0.82rem;
+}
+
+.bubble th,
+.bubble td {
+    border: 1px solid var(--glass-border);
+    padding: 0.35rem 0.55rem;
+    text-align: left;
+}
+
+.bubble th {
+    background: rgba(255, 255, 255, 0.04);
+    font-weight: 600;
+    color: var(--text-2);
+}
+
+.bubble ul,
+.bubble ol {
+    padding-left: 1.3em;
+    margin: 0.3em 0;
+}
+
+.bubble li {
+    margin: 0.15em 0;
+}
+
+/* ── Plot / Video figure ── */
+.plot-figure {
+    margin: 0.65rem 0;
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    border: 1px solid var(--glass-border);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+}
+
+.plot-img {
+    width: 100%;
+    display: block;
+}
+
+.plot-actions {
+    display: flex;
+    gap: 0.35rem;
+    padding: 0.45rem 0.6rem;
+    background: rgba(0, 0, 0, 0.3);
+    border-top: 1px solid var(--glass-border);
+    flex-wrap: wrap;
+}
+
+.plot-action-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm);
+    color: var(--text-2);
+    padding: 0.25rem 0.55rem;
+    font-size: 0.72rem;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.plot-action-btn:hover {
+    background: rgba(109, 92, 255, 0.1);
+    border-color: rgba(109, 92, 255, 0.25);
+    color: var(--text-1);
+}
+
+.plot-action-btn.arraylake-btn {
+    color: var(--warning);
+    border-color: rgba(251, 191, 36, 0.2);
+}
+
+.plot-action-btn.arraylake-btn:hover {
+    background: rgba(251, 191, 36, 0.1);
+    border-color: rgba(251, 191, 36, 0.35);
+}
+
+/* ── Code block under plot ── */
+.plot-code-block {
+    position: relative;
+    background: rgba(0, 0, 0, 0.5);
+    border-top: 1px solid var(--glass-border);
+    padding: 0.7rem;
+    max-height: 300px;
+    overflow-y: auto;
+}
+
+.plot-code-block pre {
+    margin: 0;
+    background: none !important;
+    border: none !important;
+    padding: 0 !important;
+}
+
+.plot-code-block code {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.78rem;
+    color: var(--text-2);
+    white-space: pre-wrap;
+    word-break: break-all;
+}
+
+.copy-btn {
+    position: absolute;
+    top: 0.4rem;
+    right: 0.4rem;
+    background: var(--glass);
+    border: 1px solid var(--glass-border);
+    color: var(--text-3);
+    font-size: 0.68rem;
+    padding: 0.2rem 0.45rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.copy-btn:hover {
+    color: var(--text-1);
+    background: rgba(255, 255, 255, 0.06);
+}
+
+/* ── Arraylake section ── */
+.arraylake-section {
+    margin-top: 0.5rem;
+}
+
+/* ── Image modal ── */
+.image-modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.85);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    animation: fadeIn 0.2s ease;
+}
+
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+    }
+
+    to {
+        opacity: 1;
+    }
+}
+
+.image-modal-box {
+    position: relative;
+    max-width: 90vw;
+    max-height: 90vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+.image-modal-box img {
+    max-width: 100%;
+    max-height: calc(90vh - 60px);
+    border-radius: var(--radius-sm);
+    box-shadow: 0 8px 40px rgba(0, 0, 0, 0.5);
+}
+
+.image-modal-actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+.modal-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    padding: 0.45rem 0.85rem;
+    border: 1px solid var(--glass-border);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: 0.8rem;
+    font-family: inherit;
+    background: rgba(109, 92, 255, 0.15);
+    color: #fff;
+    transition: all 0.2s;
+}
+
+.modal-btn:hover {
+    background: rgba(109, 92, 255, 0.3);
+}
+
+.modal-btn.modal-close {
+    background: rgba(255, 255, 255, 0.08);
+}
+
+.modal-btn.modal-close:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+/* streaming cursor */
+.cursor-blink {
+    animation: cblink 0.8s steps(2) infinite;
+    color: var(--accent);
+    font-weight: bold;
+}
+
+@keyframes cblink {
+    0% {
+        opacity: 1
+    }
+
+    50% {
+        opacity: 0
+    }
+}

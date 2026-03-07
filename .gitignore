@@ -68,3 +68,7 @@ deep_searches/
 # Generated project dumps
 full_project.txt
 src_structure.txt
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
