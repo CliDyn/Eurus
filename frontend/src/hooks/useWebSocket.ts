@@ -45,10 +45,17 @@ export function useWebSocket(onEvent?: (event: WSEvent) => void): UseWebSocketRe
     const [lastEvent, setLastEvent] = useState<WSEvent | null>(null);
     const reconnectTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
     const onEventRef = useRef(onEvent);
+    const connectingRef = useRef(false);   // guard against double-connect
     onEventRef.current = onEvent;
 
     const connect = useCallback(() => {
-        if (wsRef.current?.readyState === WebSocket.OPEN) return;
+        // Guard: don't open a second WS if one is OPEN or CONNECTING
+        if (wsRef.current) {
+            const rs = wsRef.current.readyState;
+            if (rs === WebSocket.OPEN || rs === WebSocket.CONNECTING) return;
+        }
+        if (connectingRef.current) return;
+        connectingRef.current = true;
 
         const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const ws = new WebSocket(`${protocol}//${window.location.host}/ws/chat`);
@@ -56,6 +63,7 @@ export function useWebSocket(onEvent?: (event: WSEvent) => void): UseWebSocketRe
         setStatus('connecting');
 
         ws.onopen = () => {
+            connectingRef.current = false;
             setStatus('connected');
             // Auto-resend keys from sessionStorage on reconnect
             const saved = sessionStorage.getItem('eurus-keys');
@@ -82,19 +90,29 @@ export function useWebSocket(onEvent?: (event: WSEvent) => void): UseWebSocketRe
         };
 
         ws.onclose = () => {
+            connectingRef.current = false;
             setStatus('disconnected');
+            wsRef.current = null;
             // auto-reconnect after 2 s
             reconnectTimer.current = setTimeout(connect, 2000);
         };
 
-        ws.onerror = () => ws.close();
+        ws.onerror = () => {
+            connectingRef.current = false;
+            ws.close();
+        };
     }, []);
 
     useEffect(() => {
         connect();
         return () => {
             clearTimeout(reconnectTimer.current);
-            wsRef.current?.close();
+            connectingRef.current = false;
+            if (wsRef.current) {
+                wsRef.current.onclose = null;  // prevent reconnect on cleanup close
+                wsRef.current.close();
+                wsRef.current = null;
+            }
         };
     }, [connect]);
 

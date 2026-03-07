@@ -66,9 +66,15 @@
 }
 
 .icon-btn:hover {
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--hover-bg);
     color: var(--text-2);
-    border-color: rgba(255, 255, 255, 0.1);
+    border-color: var(--hover-border);
+}
+
+.danger-btn:hover {
+    background: rgba(248, 113, 113, 0.1);
+    color: var(--danger);
+    border-color: rgba(248, 113, 113, 0.2);
 }
 
 .status-badge {
@@ -95,6 +101,9 @@
     flex: 1;
     overflow-y: auto;
     padding: 1.5rem 2rem 1rem;
+    max-width: 960px;
+    margin: 0 auto;
+    width: 100%;
 }
 
 /* ── Empty state ── */
@@ -210,11 +219,14 @@
     display: flex;
     align-items: flex-end;
     gap: 0.6rem;
-    padding: 0.85rem 1.5rem 1.1rem;
+    padding: 0.85rem 2rem 1.1rem;
     background: var(--glass);
     border-top: 1px solid var(--glass-border);
     backdrop-filter: blur(20px);
     -webkit-backdrop-filter: blur(20px);
+    max-width: 960px;
+    margin: 0 auto;
+    width: 100%;
 }
 
 .input-bar textarea {
@@ -222,7 +234,7 @@
     resize: none;
     border: 1px solid var(--glass-border);
     border-radius: var(--radius);
-    background: rgba(255, 255, 255, 0.03);
+    background: var(--input-bg);
     color: var(--text-1);
     padding: 0.7rem 1rem;
     font-size: 0.9rem;
@@ -235,7 +247,7 @@
 .input-bar textarea:focus {
     border-color: rgba(109, 92, 255, 0.4);
     box-shadow: 0 0 0 3px rgba(109, 92, 255, 0.08);
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--input-focus-bg);
 }
 
 .input-bar textarea::placeholder {
@@ -277,4 +289,11 @@
     opacity: 0.3;
     cursor: not-allowed;
     box-shadow: none;
-}.empty-warning { font-size: 0.78rem !important; color: var(--text-3) !important; opacity: 0.8; margin-top: -0.5rem !important; }
+}
+
+.empty-warning {
+    font-size: 0.78rem !important;
+    color: var(--text-3) !important;
+    opacity: 0.8;
+    margin-top: -0.5rem !important;
+}

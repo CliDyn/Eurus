@@ -41,7 +41,7 @@
 
 .cache-refresh:hover {
     color: var(--text-2);
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--hover-bg);
 }
 
 .cache-summary {
@@ -52,7 +52,7 @@
     font-size: 0.72rem;
     font-weight: 500;
     color: var(--text-3);
-    border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+    border-bottom: 1px solid var(--subtle-border);
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
@@ -67,13 +67,13 @@
 
 .cache-item {
     padding: 0.55rem 1.15rem;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.025);
+    border-bottom: 1px solid var(--subtle-border);
     transition: background 0.2s;
     cursor: default;
 }
 
 .cache-item:hover {
-    background: rgba(255, 255, 255, 0.025);
+    background: var(--hover-bg);
 }
 
 .cache-item-row {

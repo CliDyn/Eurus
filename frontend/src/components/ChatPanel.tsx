@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, ReactNode } from 'react';
 import { Send, Wifi, WifiOff, Loader2, Trash2 } from 'lucide-react';
+import ThemeToggle from './ThemeToggle';
+import ModelSelector from './ModelSelector';
 import { useWebSocket, WSEvent } from '../hooks/useWebSocket';
 import MessageBubble, { ChatMessage, MediaItem } from './MessageBubble';
 import ApiKeysPanel from './ApiKeysPanel';
@@ -137,21 +139,28 @@ export default function ChatPanel({ cacheToggle }: ChatPanelProps) {
             case 'complete':
                 setIsThinking(false);
                 setStatusMsg('');
+                // Only finalize the existing streaming message — never create a new one.
+                // Snapshot refs into locals BEFORE the state setter runs.
                 if (streamId.current) {
-                    const finalContent = ev.content ?? streamBuf.current;
-                    setMessages(prev => {
-                        const exists = prev.find(m => m.id === streamId.current);
-                        if (exists) {
-                            return prev.map(m =>
-                                m.id === streamId.current
-                                    ? { ...m, content: finalContent, media: [...streamMedia.current], arraylakeSnippets: [...streamSnippets.current], isStreaming: false, toolLabel: undefined, statusText: undefined }
-                                    : m
-                            );
-                        }
-                        return [...prev, { id: streamId.current!, role: 'assistant', content: finalContent, media: [...streamMedia.current], arraylakeSnippets: [...streamSnippets.current] }];
-                    });
-                } else {
-                    setMessages(prev => [...prev, { id: uid(), role: 'assistant', content: ev.content ?? '' }]);
+                    const capturedId = streamId.current;
+                    const capturedContent = ev.content ?? streamBuf.current;
+                    const capturedMedia = [...streamMedia.current];
+                    const capturedSnippets = [...streamSnippets.current];
+                    setMessages(prev =>
+                        prev.map(m => {
+                            if (m.id !== capturedId) return m;
+                            return {
+                                ...m,
+                                content: capturedContent || m.content,
+                                // Preserve media/snippets already on the message if our refs are empty
+                                media: capturedMedia.length > 0 ? capturedMedia : (m.media || []),
+                                arraylakeSnippets: capturedSnippets.length > 0 ? capturedSnippets : (m.arraylakeSnippets || []),
+                                isStreaming: false,
+                                toolLabel: undefined,
+                                statusText: undefined,
+                            };
+                        })
+                    );
                 }
                 streamBuf.current = '';
                 streamMedia.current = [];
@@ -190,7 +199,7 @@ export default function ChatPanel({ cacheToggle }: ChatPanelProps) {
         }
     }, []);
 
-    const { status, sendMessage, configureKeys } = useWebSocket(handleEvent);
+    const { status, send, sendMessage, configureKeys } = useWebSocket(handleEvent);
 
     /* ── check if server has keys ── */
     useEffect(() => {
@@ -222,6 +231,7 @@ export default function ChatPanel({ cacheToggle }: ChatPanelProps) {
 
     /* ── clear conversation ── */
     const handleClear = async () => {
+        if (!confirm('Clear conversation history?')) return;
         try {
             await fetch('/api/conversation', { method: 'DELETE' });
             setMessages([]);
@@ -256,14 +266,16 @@ export default function ChatPanel({ cacheToggle }: ChatPanelProps) {
                     <h1>Eurus Climate Agent</h1>
                 </div>
                 <div className="chat-header-actions">
-                    {cacheToggle}
-                    <button className="icon-btn" onClick={handleClear} title="Clear conversation">
-                        <Trash2 size={16} />
-                    </button>
                     <div className={statusClass} style={{ color: statusColor }}>
                         <StatusIcon size={12} />
                         <span>{status}</span>
                     </div>
+                    {cacheToggle}
+                    <ModelSelector send={send} />
+                    <ThemeToggle />
+                    <button className="icon-btn danger-btn" onClick={handleClear} title="Clear conversation">
+                        <Trash2 size={16} />
+                    </button>
                 </div>
             </header>
 
@@ -281,11 +293,11 @@ export default function ChatPanel({ cacheToggle }: ChatPanelProps) {
                             ⚠️ <strong>Experimental</strong> — research prototype. Avoid very large datasets. Use 📦 Arraylake Code for heavy workloads.
                         </p>
                         <div className="example-queries">
-                            <button onClick={() => { setInput('Show SST for California coast, Jan 2024'); }}>
-                                🌡 SST — California coast
+                            <button onClick={() => { setInput('Show SST map for the North Atlantic, Jan 2024'); }}>
+                                🌡 SST — North Atlantic
                             </button>
-                            <button onClick={() => { setInput('Compare wind speed Berlin vs Tokyo, March 2023'); }}>
-                                💨 Wind — Berlin vs Tokyo
+                            <button onClick={() => { setInput('Compare 2m temperature Berlin vs Tokyo, March 2023'); }}>
+                                💨 Temperature — Berlin vs Tokyo
                             </button>
                             <button onClick={() => { setInput('Precipitation anomalies over Amazon, 2023'); }}>
                                 🌧 Rain — Amazon basin

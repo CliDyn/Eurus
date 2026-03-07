@@ -26,7 +26,7 @@
 }
 
 .bubble {
-    max-width: 75%;
+    max-width: 80%;
     padding: 0.9rem 1.15rem;
     border-radius: var(--radius);
     line-height: 1.6;
@@ -83,7 +83,7 @@
 }
 
 .bubble pre {
-    background: rgba(0, 0, 0, 0.4);
+    background: var(--code-bg);
     border: 1px solid var(--glass-border);
     border-radius: var(--radius-sm);
     padding: 0.8rem;
@@ -119,7 +119,7 @@
 }
 
 .bubble th {
-    background: rgba(255, 255, 255, 0.04);
+    background: var(--subtle-bg);
     font-weight: 600;
     color: var(--text-2);
 }
@@ -137,22 +137,30 @@
 /* ── Plot / Video figure ── */
 .plot-figure {
     margin: 0.65rem 0;
+    max-width: 560px;
     border-radius: var(--radius-sm);
     overflow: hidden;
     border: 1px solid var(--glass-border);
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 4px 24px rgba(0, 0, 0, var(--shadow-strength));
 }
 
 .plot-img {
     width: 100%;
     display: block;
+    cursor: zoom-in;
+    transition: filter 0.2s ease, transform 0.2s ease;
+}
+
+.plot-img:hover {
+    filter: brightness(1.08);
+    transform: scale(1.01);
 }
 
 .plot-actions {
     display: flex;
     gap: 0.35rem;
     padding: 0.45rem 0.6rem;
-    background: rgba(0, 0, 0, 0.3);
+    background: var(--plot-actions-bg);
     border-top: 1px solid var(--glass-border);
     flex-wrap: wrap;
 }
@@ -191,7 +199,7 @@
 /* ── Code block under plot ── */
 .plot-code-block {
     position: relative;
-    background: rgba(0, 0, 0, 0.5);
+    background: var(--code-block-bg);
     border-top: 1px solid var(--glass-border);
     padding: 0.7rem;
     max-height: 300px;
@@ -229,7 +237,7 @@
 
 .copy-btn:hover {
     color: var(--text-1);
-    background: rgba(255, 255, 255, 0.06);
+    background: var(--hover-bg);
 }
 
 /* ── Arraylake section ── */
@@ -241,7 +249,7 @@
 .image-modal-overlay {
     position: fixed;
     inset: 0;
-    background: rgba(0, 0, 0, 0.85);
+    background: var(--overlay-bg);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -301,11 +309,11 @@
 }
 
 .modal-btn.modal-close {
-    background: rgba(255, 255, 255, 0.08);
+    background: var(--modal-close-bg);
 }
 
 .modal-btn.modal-close:hover {
-    background: rgba(255, 255, 255, 0.15);
+    background: var(--modal-close-hover);
 }
 
 /* streaming cursor */

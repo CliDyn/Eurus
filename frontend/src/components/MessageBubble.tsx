@@ -209,7 +209,7 @@ export default function MessageBubble({ msg }: { msg: ChatMessage }) {
                     {/* Arraylake snippets */}
                     {msg.arraylakeSnippets?.map((s, i) => <ArraylakeSnippet key={`al-${i}`} code={s} />)}
 
-                    {msg.isStreaming && <span className="cursor-blink">▍</span>}
+                    {msg.isStreaming && !msg.media?.length && !msg.arraylakeSnippets?.length && <span className="cursor-blink">▍</span>}
                 </div>
             </div>
 

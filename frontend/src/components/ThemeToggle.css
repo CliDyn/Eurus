@@ -1,0 +1,55 @@
+/* ── ThemeToggle ──────────────────────────── */
+.theme-toggle-btn {
+    background: none;
+    border: none;
+    padding: 0;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+}
+
+.toggle-track {
+    width: 44px;
+    height: 24px;
+    border-radius: 100px;
+    position: relative;
+    transition: background 0.35s ease, border-color 0.35s ease;
+    border: 1px solid var(--glass-border);
+}
+
+.toggle-track.dark {
+    background: rgba(109, 92, 255, 0.15);
+}
+
+.toggle-track.light {
+    background: rgba(251, 191, 36, 0.15);
+    border-color: rgba(251, 191, 36, 0.25);
+}
+
+.toggle-thumb {
+    position: absolute;
+    top: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.35s ease;
+}
+
+.toggle-track.dark .toggle-thumb {
+    transform: translateX(2px);
+    background: var(--accent);
+    color: #fff;
+}
+
+.toggle-track.light .toggle-thumb {
+    transform: translateX(22px);
+    background: #f59e0b;
+    color: #fff;
+}
+
+.theme-toggle-btn:hover .toggle-track {
+    box-shadow: 0 0 12px var(--accent-glow);
+}

@@ -10,6 +10,7 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from eurus.config import CONFIG
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -74,6 +75,31 @@ async def websocket_chat(websocket: WebSocket):
                 })
                 continue
 
+            # Handle model switching
+            if data.get("type") == "set_provider":
+                model_id = data.get("model", "gpt-5.2")
+                # Create session if it doesn't exist yet (keys from env)
+                if session is None:
+                    session = create_session(connection_id)
+                session.set_provider(model_id)
+                await manager.send_json(websocket, {
+                    "type": "provider_changed",
+                    "model": model_id,
+                })
+                continue
+
+            # Handle get_models request
+            if data.get("type") == "get_models":
+                from web.agent_wrapper import AgentSession
+                models = AgentSession.AVAILABLE_MODELS
+                current = session.get_current_model() if session else CONFIG.model_name
+                await manager.send_json(websocket, {
+                    "type": "models_list",
+                    "models": models,
+                    "current": current,
+                })
+                continue
+
             # Create default session if not yet created (keys from env)
             if session is None:
                 session = create_session(connection_id)
@@ -115,10 +141,9 @@ async def websocket_chat(websocket: WebSocket):
                 # Process message
                 response = await session.process_message(message, stream_callback)
 
-                # Send complete
+                # Send complete (content already streamed via chunks)
                 await manager.send_json(websocket, {
                     "type": "complete",
-                    "content": response
                 })
 
             except Exception as e:

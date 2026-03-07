@@ -39,12 +39,21 @@ class AgentSession:
     Manages a single agent session with streaming support.
     """
 
+    # Available models for the selector
+    AVAILABLE_MODELS = [
+        {"id": "gpt-5.2", "label": "GPT-5.2", "provider": "openai"},
+        {"id": "gpt-4.1", "label": "GPT-4.1", "provider": "openai"},
+        {"id": "o3", "label": "o3", "provider": "openai"},
+        {"id": "gemini-3.1-pro-preview", "label": "Gemini 3.1 Pro", "provider": "google"},
+    ]
+
     def __init__(self, api_keys: Optional[Dict[str, str]] = None):
         self._agent = None
         self._repl_tool: Optional[PythonREPLTool] = None
         self._messages: List[Dict] = []
         self._initialized = False
         self._api_keys = api_keys or {}
+        self._current_model = CONFIG.model_name
 
         # Global singleton keeps the dataset cache (shared across sessions)
         self._memory = get_memory()
@@ -135,6 +144,65 @@ class AgentSession:
         """Check if the agent is ready."""
         return self._initialized and self._agent is not None
 
+    def get_current_model(self) -> str:
+        """Return the current model name."""
+        return self._current_model
+
+    def set_provider(self, model_id: str):
+        """Switch the LLM model. Reinitializes the agent with the new model."""
+        openai_key = self._api_keys.get("openai_api_key") or os.environ.get("OPENAI_API_KEY")
+        vertex_key = self._api_keys.get("vertex_api_key") or os.environ.get("vertex_api_key")
+
+        # Determine provider from model id
+        is_gemini = model_id.startswith("gemini")
+
+        if is_gemini and not vertex_key:
+            logger.error("Cannot switch to Gemini: no vertex_api_key in .env")
+            return
+        if not is_gemini and not openai_key:
+            logger.error("Cannot switch model: no OPENAI_API_KEY")
+            return
+
+        logger.info(f"Switching model from {self._current_model} to {model_id}")
+        self._current_model = model_id
+
+        try:
+            if is_gemini:
+                from langchain_google_genai import ChatGoogleGenerativeAI
+                llm = ChatGoogleGenerativeAI(
+                    model=model_id,
+                    temperature=CONFIG.temperature,
+                    api_key=vertex_key,
+                    vertexai=True,
+                )
+            else:
+                llm = ChatOpenAI(
+                    model=model_id,
+                    temperature=CONFIG.temperature,
+                    api_key=openai_key,
+                )
+
+            tools = get_all_tools(enable_routing=True, enable_guide=True)
+            tools = [t for t in tools if t.name != "python_repl"] + [self._repl_tool]
+
+            datasets = self._memory.list_datasets()
+            enhanced_prompt = AGENT_SYSTEM_PROMPT
+            if datasets != "No datasets in cache.":
+                enhanced_prompt += f"\n\n## CACHED DATASETS\n{datasets}"
+
+            self._agent = create_agent(
+                model=llm,
+                tools=tools,
+                system_prompt=enhanced_prompt,
+                debug=False
+            )
+
+            # Keep conversation intact — only reset tool calls
+            self._messages = []
+            logger.info(f"Model switched to {model_id} successfully")
+        except Exception as e:
+            logger.exception(f"Failed to switch model: {e}")
+
     def reinitialize(self):
         """Retry initialization (e.g., after transient failure)."""
         logger.warning("Attempting agent reinitialization...")
@@ -183,8 +251,8 @@ class AgentSession:
             await stream_callback("status", "🔍 Analyzing your request...")
             await asyncio.sleep(0.3)
 
-            # Invoke the agent in executor (~15 tool calls max)
-            config = {"recursion_limit": 35}
+            # Invoke the agent in executor (20 iterations max to save tokens)
+            config = {"recursion_limit": 20}
             
             # Stream status updates while agent is working
             await stream_callback("status", "🤖 Processing with AI...")
@@ -276,9 +344,23 @@ class AgentSession:
             last_message = self._messages[-1]
 
             if hasattr(last_message, 'content') and last_message.content:
-                response_text = last_message.content
+                raw_content = last_message.content
+                # Gemini can return content as a list of content blocks
+                if isinstance(raw_content, list):
+                    # Extract text from each block
+                    parts = []
+                    for block in raw_content:
+                        if isinstance(block, str):
+                            parts.append(block)
+                        elif isinstance(block, dict) and block.get('text'):
+                            parts.append(block['text'])
+                        elif hasattr(block, 'text'):
+                            parts.append(block.text)
+                    response_text = "\n".join(parts) if parts else str(raw_content)
+                else:
+                    response_text = str(raw_content)
             elif isinstance(last_message, dict) and last_message.get('content'):
-                response_text = last_message['content']
+                response_text = str(last_message['content'])
             else:
                 response_text = str(last_message)
 
