@@ -127,7 +127,7 @@ async def download_dataset(path: str = Query(..., description="Path to Zarr data
     data_dir = (PROJECT_ROOT / "data").resolve()
 
     # Security: only allow paths under PROJECT_ROOT/data
-    if not str(dataset_path).startswith(str(data_dir)):
+    if not dataset_path.is_relative_to(data_dir):
         raise HTTPException(status_code=403, detail="Access denied: path outside data directory")
 
     if not dataset_path.exists():
