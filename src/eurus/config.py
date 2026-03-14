@@ -632,6 +632,16 @@ Persistent Python kernel for custom analysis and visualization.
 - **Extremes**: Filter data where values exceed thresholds
 - **Visualizations**: Any matplotlib plot saved to PLOTS_DIR
 
+### 3b. ANOMALY MAP STRATEGY (CRITICAL)
+⚠️ When computing **anomaly maps** for large spatial areas (≥30°×30°):
+
+1. **Download target period** — 1 `retrieve_era5_data` call for the requested month
+2. **Download baseline** — MAX 3-5 `retrieve_era5_data` calls (same month, recent years like 2018-2022)
+3. **Compute in `python_repl`** — Load all files, average baseline, subtract from target
+
+**NEVER download 20-30 individual years** for climatology — that is extremely wasteful.
+A 5-year baseline is sufficient for spatial anomaly maps.
+
 ### 4. MEMORY
 Remembers conversation history and previous analyses.
 

@@ -118,8 +118,16 @@ ANALYSIS_GUIDES = {
 4. **Convert units** — Report in °C, mm, m/s (not K, m, Pa).
 5. **Assess magnitude** — Compare to σ of the baseline period.
 
+### Data Strategy for Large-Area Anomaly Maps
+⚠️ For spatial areas ≥30°×30° (e.g., tropical Pacific), do NOT download 30 years one-by-one!
+1. Download target period with 1 `retrieve_era5_data` call
+2. Download 3-5 recent years of the same month as baseline (3-5 calls)  
+3. Average baseline files in `python_repl` → climatology
+4. Subtract climatology from target → anomaly map
+A 5-year baseline is sufficient for spatial anomaly maps.
+
 ### Quality Checklist
-- [ ] Baseline ≥10 years
+- [ ] Baseline ≥10 years (for temporal/small-area analysis; 3-5 years OK for spatial maps)
 - [ ] Same calendar grouping for clim and analysis
 - [ ] Units converted for readability
 - [ ] Spatial context: is anomaly regional or localized?

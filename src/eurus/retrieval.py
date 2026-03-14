@@ -190,6 +190,7 @@ def retrieve_era5_data(
     min_longitude: float = 0.0,
     max_longitude: float = 359.75,
     region: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> str:
     """
     Retrieve ERA5 reanalysis data from Earthmover's cloud-optimized archive.
@@ -204,6 +205,7 @@ def retrieve_era5_data(
         min_longitude: Western bound (0 to 360)
         max_longitude: Eastern bound (0 to 360)
         region: Optional predefined region name (overrides lat/lon)
+        api_key: Optional Arraylake API key (falls back to env var)
 
     Returns:
         Success message with file path, or error message.
@@ -213,8 +215,8 @@ def retrieve_era5_data(
     """
     memory = get_memory()
 
-    # Get API key
-    api_key = os.environ.get("ARRAYLAKE_API_KEY")
+    # Get API key: prefer explicit parameter, fall back to env var
+    api_key = api_key or os.environ.get("ARRAYLAKE_API_KEY")
     if not api_key:
         return (
             "Error: ARRAYLAKE_API_KEY not found in environment.\n"
@@ -327,9 +329,11 @@ def retrieve_era5_data(
             f"Error: Spatial queries are limited to 1 year max ({date_span_days} days requested).\n"
             f"The spatial dataset is optimised for maps, not long time series.\n\n"
             f"Options:\n"
-            f"1. Split into yearly requests (e.g. one call per year)\n"
-            f"2. Use query_type='temporal' for multi-year time-series analysis\n"
-            f"3. Narrow the date range to ≤ 366 days"
+            f"1. For anomaly maps: download ONLY the target period + a few recent baseline years "
+            f"(3-5 calls max), then compute climatology in python_repl\n"
+            f"2. Narrow the date range to ≤ 366 days\n\n"
+            f"⚠️ Do NOT split into 20-30 yearly retrieve_era5_data calls — "
+            f"that is extremely wasteful and slow!"
         )
 
     # Download with retry logic
