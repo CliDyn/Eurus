@@ -13,12 +13,12 @@ interface ModelSelectorProps {
 }
 
 export default function ModelSelector({ send }: ModelSelectorProps) {
-    const [current, setCurrent] = useState('gpt-5.2');
+    const [current, setCurrent] = useState('gpt-5.4');
     const [open, setOpen] = useState(false);
     const ref = useRef<HTMLDivElement>(null);
 
     const models: ModelOption[] = [
-        { id: 'gpt-5.2', label: 'GPT-5.2', provider: 'openai' },
+        { id: 'gpt-5.4', label: 'GPT-5.4', provider: 'openai' },
         { id: 'gpt-4.1', label: 'GPT-4.1', provider: 'openai' },
         { id: 'o3', label: 'o3', provider: 'openai' },
         { id: 'gemini-3.1-pro-preview', label: 'Gemini 3.1 Pro', provider: 'google' },
