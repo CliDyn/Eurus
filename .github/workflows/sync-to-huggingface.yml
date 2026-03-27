@@ -44,25 +44,35 @@ jobs:
           pip install -U huggingface_hub
           python -c "
           from huggingface_hub import HfApi
-          import os
+          import os, time
           api = HfApi()
           token = os.environ['HF_TOKEN']
+          ignore = [
+              '.git/*', '.github/*',
+              'node_modules/*', 'frontend/node_modules/*',
+              '__pycache__/*', '*.pyc',
+              '.venv/*', '.env',
+              'data/*', 'logs/*', '.memory/*',
+              '*.egg-info/*',
+          ]
           for repo_id in ['CliDyn/Eurus', 'dmpantiu/Eurus']:
-              print(f'Uploading to {repo_id}...')
-              api.upload_folder(
-                  folder_path='.',
-                  repo_id=repo_id,
-                  repo_type='space',
-                  token=token,
-                  ignore_patterns=[
-                      '.git/*', '.github/*',
-                      'node_modules/*', 'frontend/node_modules/*',
-                      '__pycache__/*', '*.pyc',
-                      '.venv/*', '.env',
-                      'data/*', 'logs/*', '.memory/*',
-                      '*.egg-info/*',
-                  ],
-              )
-              print(f'Upload to {repo_id} complete')
-          print('All uploads complete')
+              for attempt in range(3):
+                  try:
+                      print(f'Uploading to {repo_id} (attempt {attempt+1})...')
+                      api.upload_folder(
+                          folder_path='.',
+                          repo_id=repo_id,
+                          repo_type='space',
+                          token=token,
+                          ignore_patterns=ignore,
+                      )
+                      print(f'Upload to {repo_id} complete')
+                      break
+                  except Exception as e:
+                      print(f'Attempt {attempt+1} failed for {repo_id}: {e}')
+                      if attempt < 2:
+                          time.sleep(10)
+                      else:
+                          print(f'WARNING: Skipping {repo_id} after 3 failures')
+          print('Sync finished')
           "
