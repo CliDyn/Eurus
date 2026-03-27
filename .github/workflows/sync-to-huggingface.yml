@@ -54,7 +54,14 @@ jobs:
                   repo_id=repo_id,
                   repo_type='space',
                   token=token,
-                  ignore_patterns=['.git/*', '.github/*'],
+                  ignore_patterns=[
+                      '.git/*', '.github/*',
+                      'node_modules/*', 'frontend/node_modules/*',
+                      '__pycache__/*', '*.pyc',
+                      '.venv/*', '.env',
+                      'data/*', 'logs/*', '.memory/*',
+                      '*.egg-info/*',
+                  ],
               )
               print(f'Upload to {repo_id} complete')
           print('All uploads complete')
