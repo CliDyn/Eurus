@@ -66,19 +66,13 @@ async def keys_status():
 
 @router.get("/health", response_model=HealthResponse)
 async def health_check():
-    """Check if the server and agent are healthy."""
-    from web.agent_wrapper import get_agent_session
-
-    try:
-        session = get_agent_session()
-        agent_ready = session is not None and session.is_ready()
-    except Exception:
-        agent_ready = False
-
+    """Check if the server is healthy."""
+    # NOTE: We no longer check a shared singleton session.
+    # Each WebSocket connection has its own AgentSession.
     return HealthResponse(
         status="ok",
         version="1.0.0",
-        agent_ready=agent_ready
+        agent_ready=True  # Server is up → ready to accept WS connections
     )
 
 
@@ -181,17 +175,14 @@ async def get_config():
 
 @router.delete("/conversation")
 async def clear_conversation():
-    """Clear the conversation history."""
+    """Clear the conversation history (shared memory only)."""
     from eurus.memory import get_memory
-    from web.agent_wrapper import get_agent_session
 
     memory = get_memory()
     memory.clear_conversation()
 
-    # Also clear the agent session messages
-    session = get_agent_session()
-    if session:
-        session.clear_messages()
+    # NOTE: Agent session messages are managed per-WebSocket connection.
+    # Each session clears its own messages when the connection closes.
 
     return {"status": "ok", "message": "Conversation cleared"}
 

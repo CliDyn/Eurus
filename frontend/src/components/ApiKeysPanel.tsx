@@ -5,12 +5,18 @@ import './ApiKeysPanel.css';
 interface ApiKeysPanelProps {
     visible: boolean;
     onSave: (keys: { openai_api_key: string; arraylake_api_key: string }) => void;
+    configured?: boolean;
 }
 
-export default function ApiKeysPanel({ visible, onSave }: ApiKeysPanelProps) {
+export default function ApiKeysPanel({ visible, onSave, configured }: ApiKeysPanelProps) {
     const [openaiKey, setOpenaiKey] = useState('');
     const [arraylakeKey, setArraylakeKey] = useState('');
     const [saving, setSaving] = useState(false);
+
+    // Reset saving state when keys are confirmed configured
+    useEffect(() => {
+        if (configured) setSaving(false);
+    }, [configured]);
 
     // Restore from sessionStorage
     useEffect(() => {

@@ -12,8 +12,8 @@ services:
   agent:
     build:
       context: .
-      target: agent
     image: eurus-agent
+    entrypoint: ["python", "main.py"]
     env_file: .env
     environment:
       - EURUS_DOCKER=1
@@ -28,7 +28,6 @@ services:
   web:
     build:
       context: .
-      target: web
     image: eurus-web
     env_file: .env
     environment:

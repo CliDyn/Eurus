@@ -14,7 +14,7 @@ from typing import List
 from langchain_core.tools import BaseTool
 
 # Import core tools
-from .era5 import era5_tool
+from .era5 import era5_tool, create_era5_tool
 from .repl import PythonREPLTool
 from .routing import routing_tool
 from .analysis_guide import analysis_guide_tool, visualization_guide_tool
@@ -29,7 +29,8 @@ except ImportError:
 
 def get_all_tools(
     enable_routing: bool = True,
-    enable_guide: bool = True
+    enable_guide: bool = True,
+    arraylake_api_key: str | None = None,
 ) -> List[BaseTool]:
     """
     Return a list of all available tools for the agent.
@@ -37,13 +38,15 @@ def get_all_tools(
     Args:
         enable_routing: If True, includes the maritime routing tool (default: True).
         enable_guide: If True, includes the guide tools (default: True).
+        arraylake_api_key: If provided, binds this key to the ERA5 tool (session isolation).
 
     Returns:
         List of LangChain tools for the agent.
     """
     # Core tools: data retrieval + Python analysis
+    # Use session-specific ERA5 tool if key is provided, else default (env-based)
     tools = [
-        era5_tool,
+        create_era5_tool(api_key=arraylake_api_key) if arraylake_api_key else era5_tool,
         PythonREPLTool(working_dir=".")
     ]
 

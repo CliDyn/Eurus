@@ -308,6 +308,27 @@ class PersistentREPL:
             self._cleanup_process()
             self._start_subprocess()
 
+    def set_extra_env(self, env_vars: dict):
+        """Inject extra environment variables into the running subprocess."""
+        if not env_vars:
+            return
+        with self._lock:
+            self._ensure_alive()
+            # Build a Python command that sets the env vars inside the subprocess
+            set_cmds = []
+            for key, value in env_vars.items():
+                if value:  # Only set non-empty values
+                    set_cmds.append(f"os.environ[{key!r}] = {value!r}")
+            if set_cmds:
+                code = "import os; " + "; ".join(set_cmds)
+                cmd = json.dumps({"type": "exec", "code": code}) + "\n"
+                try:
+                    self._process.stdin.write(cmd)
+                    self._process.stdin.flush()
+                    self._read_with_timeout(5)  # consume the response
+                except Exception as e:
+                    logger.warning("Failed to inject env vars into subprocess: %s", e)
+
     def run(self, code: str, timeout: int = 300) -> str:
         """Execute code in the subprocess. Returns output string."""
         with self._lock:
@@ -463,6 +484,11 @@ class PythonREPLTool(BaseTool):
         # Override the subprocess PLOTS_DIR env var to use session-specific dir
         if plots_dir:
             self._repl._update_plots_dir(plots_dir)
+
+    def inject_env(self, env_vars: dict):
+        """Inject environment variables into the REPL subprocess (session-scoped)."""
+        if self._repl:
+            self._repl.set_extra_env(env_vars)
 
     def set_plot_callback(self, callback: Callable):
         """Set callback for plot capture (used by web interface)."""

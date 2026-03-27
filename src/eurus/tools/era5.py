@@ -13,6 +13,7 @@ QUERY_TYPE IS AUTO-DETECTED based on time/area rules:
 import logging
 from typing import Optional
 from datetime import datetime
+from functools import partial
 
 from pydantic import BaseModel, Field, field_validator
 from langchain_core.tools import StructuredTool
@@ -156,10 +157,12 @@ def retrieve_era5_data(
     max_latitude: float,
     min_longitude: float,
     max_longitude: float,
-    region: Optional[str] = None
+    region: Optional[str] = None,
+    _api_key: Optional[str] = None,
 ) -> str:
     """
     Wrapper that auto-detects query_type and calls the real retrieval function.
+    _api_key is injected by the session — not exposed to the LLM.
     """
     # Auto-detect query type
     query_type = _auto_detect_query_type(
@@ -178,7 +181,8 @@ def retrieve_era5_data(
         max_latitude=max_latitude,
         min_longitude=min_longitude,
         max_longitude=max_longitude,
-        region=region
+        region=region,
+        api_key=_api_key,
     )
 
 
@@ -186,19 +190,29 @@ def retrieve_era5_data(
 # LANGCHAIN TOOL CREATION
 # ============================================================================
 
-era5_tool = StructuredTool.from_function(
-    func=retrieve_era5_data,
-    name="retrieve_era5_data",
-    description=(
-        "Retrieves ERA5 climate reanalysis data from Earthmover's cloud archive.\n\n"
-        "⚠️ query_type is AUTO-DETECTED - you don't need to specify it!\n\n"
-        "Just provide:\n"
-        "- variable_id: one of 22 ERA5 variables (sst, t2, d2, skt, u10, v10, u100, v100, "
-        "sp, mslp, blh, cape, tcc, cp, lsp, tp, ssr, ssrd, tcw, tcwv, sd, stl1, swvl1)\n"
-        "- start_date, end_date: YYYY-MM-DD format\n"
-        "- lat/lon bounds: Use values from maritime route bounding box!\n\n"
-        "DATA: 1975-2024.\n"
-        "Returns file path. Load with: xr.open_zarr('PATH')"
-    ),
-    args_schema=ERA5RetrievalArgs
-)
+def create_era5_tool(api_key: Optional[str] = None) -> StructuredTool:
+    """Create an ERA5 tool, optionally binding a session-specific API key."""
+    func = partial(retrieve_era5_data, _api_key=api_key) if api_key else retrieve_era5_data
+    # partial objects lose __name__, so set it explicitly
+    if hasattr(func, 'func'):
+        func.__name__ = 'retrieve_era5_data'
+    return StructuredTool.from_function(
+        func=func,
+        name="retrieve_era5_data",
+        description=(
+            "Retrieves ERA5 climate reanalysis data from Earthmover's cloud archive.\n\n"
+            "⚠️ query_type is AUTO-DETECTED - you don't need to specify it!\n\n"
+            "Just provide:\n"
+            "- variable_id: one of 22 ERA5 variables (sst, t2, d2, skt, u10, v10, u100, v100, "
+            "sp, mslp, blh, cape, tcc, cp, lsp, tp, ssr, ssrd, tcw, tcwv, sd, stl1, swvl1)\n"
+            "- start_date, end_date: YYYY-MM-DD format\n"
+            "- lat/lon bounds: Use values from maritime route bounding box!\n\n"
+            "DATA: 1975-2024.\n"
+            "Returns file path. Load with: xr.open_zarr('PATH')"
+        ),
+        args_schema=ERA5RetrievalArgs,
+    )
+
+
+# Default tool instance (reads key from os.environ — for CLI/server .env usage)
+era5_tool = create_era5_tool()

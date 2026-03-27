@@ -20,6 +20,7 @@ export default function ChatPanel({ cacheToggle }: ChatPanelProps) {
     const [isThinking, setIsThinking] = useState(false);
     const [statusMsg, setStatusMsg] = useState('');
     const [needKeys, setNeedKeys] = useState<boolean | null>(null); // null = don't know yet
+    const [keysConfigured, setKeysConfigured] = useState(false);
     const bottomRef = useRef<HTMLDivElement>(null);
     const streamBuf = useRef('');
     const streamMedia = useRef<MediaItem[]>([]);
@@ -178,6 +179,7 @@ export default function ChatPanel({ cacheToggle }: ChatPanelProps) {
             case 'keys_configured':
                 if (ev.ready) {
                     setNeedKeys(false);
+                    setKeysConfigured(true);
                 }
                 break;
 
@@ -209,7 +211,7 @@ export default function ChatPanel({ cacheToggle }: ChatPanelProps) {
             .then(data => {
                 setNeedKeys(!data.openai);
             })
-            .catch(() => setNeedKeys(false)); // fallback: assume keys in .env
+            .catch(() => setNeedKeys(true)); // no server keys — show panel
     }, [status]);
 
     /* ── auto-scroll ── */
@@ -280,7 +282,7 @@ export default function ChatPanel({ cacheToggle }: ChatPanelProps) {
             </header>
 
             {/* API keys panel */}
-            <ApiKeysPanel visible={needKeys === true} onSave={handleSaveKeys} />
+            <ApiKeysPanel visible={needKeys === true} onSave={handleSaveKeys} configured={keysConfigured} />
 
             {/* messages */}
             <div className="messages-container">

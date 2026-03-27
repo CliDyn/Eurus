@@ -76,13 +76,14 @@ class AgentSession:
 
         if not arraylake_key:
             logger.warning("ARRAYLAKE_API_KEY not found")
-        elif not os.environ.get("ARRAYLAKE_API_KEY"):
-            # Only set env var if not already configured (avoid overwriting
-            # server-configured keys with user-provided ones in multi-user scenarios)
-            os.environ["ARRAYLAKE_API_KEY"] = arraylake_key
 
-        if hf_token and not os.environ.get("HF_TOKEN"):
-            os.environ["HF_TOKEN"] = hf_token
+        # SECURITY: Do NOT write user-provided keys to os.environ!
+        # os.environ is process-global — leaks keys to other sessions on shared hosts (e.g. HF Spaces).
+        # Instead, store in self and pass directly to tools that need them.
+        self._resolved_keys = {
+            "ARRAYLAKE_API_KEY": arraylake_key or "",
+            "HF_TOKEN": hf_token or "",
+        }
 
         if not openai_key:
             logger.error("OPENAI_API_KEY not found")
@@ -93,6 +94,10 @@ class AgentSession:
             logger.info("Starting Python kernel...")
             self._repl_tool = PythonREPLTool(working_dir=os.getcwd())
 
+            # Inject session-specific keys into the REPL subprocess
+            # (keeps them isolated from other sessions — no os.environ pollution)
+            self._repl_tool.inject_env(self._resolved_keys)
+
             # Set up plot callback using the proper method
             def on_plot_captured(base64_data: str, filepath: str, code: str = ""):
                 logger.info(f"Plot captured, adding to queue: {filepath}")
@@ -102,7 +107,13 @@ class AgentSession:
             logger.info("Plot callback registered")
 
             # Get ALL tools from centralized registry (no SCIENCE_TOOLS!)
-            tools = get_all_tools(enable_routing=True, enable_guide=True)
+            # Pass session-specific Arraylake key for isolation
+            arraylake_key = self._resolved_keys.get("ARRAYLAKE_API_KEY")
+            tools = get_all_tools(
+                enable_routing=True,
+                enable_guide=True,
+                arraylake_api_key=arraylake_key or None,
+            )
             # Replace the default REPL with our configured one
             tools = [t for t in tools if t.name != "python_repl"] + [self._repl_tool]
 
