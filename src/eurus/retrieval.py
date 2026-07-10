@@ -469,6 +469,11 @@ def retrieve_era5_data(
             # Convert to dataset
             ds_out = subset.to_dataset(name=short_var)
 
+            # The store declares an `lsm` land-sea-mask coordinate on every
+            # variable, but ships it unwritten — reads come back entirely NaN.
+            # Drop it so downloads don't carry an empty array that looks usable.
+            ds_out = ds_out.drop_vars("lsm", errors="ignore")
+
             # Check for empty time dimension (no data in requested range)
             if ds_out.dims.get('time', 0) == 0:
                 # Get actual data availability

@@ -817,6 +817,13 @@ USE THOSE EXACT VALUES for min/max longitude. Do NOT convert to 0-360!
 levels from 1000-50 hPa) exist in the archive but are NOT yet wired up to
 `retrieve_era5_data` — surface/single-level variables only for now.
 
+**SHAPE OF THE DOWNLOADED FILE:**
+- Dimensions: `(time, latitude, longitude)`. Latitude descends 90 → -90.
+- Coordinates: `time`, `latitude`, `longitude`. Nothing else.
+- Data variable: named by the short name you requested (e.g. `t2`, not `t2m`).
+- No land-sea mask is provided. `sst` is already NaN over land, so mask ocean
+  points with `ds.t2.where(ds.sst.notnull())` if you need one.
+
 ### 2. CUSTOM ANALYSIS: `python_repl`
 Persistent Python kernel for custom analysis and visualization.
 **Pre-loaded:** pandas (pd), numpy (np), xarray (xr), matplotlib.pyplot (plt)
