@@ -24,6 +24,7 @@ from eurus.config import (
     get_region,
     get_short_name,
     get_variable_info,
+    get_zarr_name,
     list_available_variables,
 )
 from eurus.memory import get_memory
@@ -33,6 +34,7 @@ logger = logging.getLogger(__name__)
 
 def _arraylake_snippet(
     variable: str,
+    zarr_variable: str,
     query_type: str,
     start_date: str,
     end_date: str,
@@ -45,6 +47,7 @@ def _arraylake_snippet(
     # Convert negative lons to 0-360 for ERA5
     era5_min = min_lon % 360 if min_lon < 0 else min_lon
     era5_max = max_lon % 360 if max_lon < 0 else max_lon
+    group = f"single/{query_type}"
     return (
         f"\n📦 Reproduce this download yourself (copy-paste into Jupyter):\n"
         f"```python\n"
@@ -57,10 +60,10 @@ def _arraylake_snippet(
         f"\n"
         f"ds = xr.open_dataset(session.store, engine='zarr',\n"
         f"                     consolidated=False, zarr_format=3,\n"
-        f"                     chunks=None, group='{query_type}')\n"
+        f"                     chunks=None, group='{group}')\n"
         f"\n"
-        f"subset = ds['{variable}'].sel(\n"
-        f"    time=slice('{start_date}', '{end_date}'),\n"
+        f"subset = ds['{zarr_variable}'].sel(\n"
+        f"    valid_time=slice('{start_date}', '{end_date}'),\n"
         f"    latitude=slice({max_lat}, {min_lat}),   # ERA5: descending\n"
         f"    longitude=slice({era5_min}, {era5_max}),\n"
         f")\n"
@@ -255,8 +258,11 @@ def retrieve_era5_data(
         else:
             logger.warning(f"Unknown region '{region}', using provided coordinates")
 
-    # Resolve variable name
+    # Resolve variable name (catalog short_var for display/filenames,
+    # zarr_var for indexing into the store — they differ for a few
+    # renamed variables, e.g. "t2" -> "t2m")
     short_var = get_short_name(variable_id)
+    zarr_var = get_zarr_name(variable_id)
     var_info = get_variable_info(variable_id)
 
     # Check for future / too-recent dates (ERA5T has a ~5-day processing lag)
@@ -347,30 +353,30 @@ def retrieve_era5_data(
             repo = client.get_repo(CONFIG.data_source)
             session = repo.readonly_session("main")
 
-            logger.info(f"Opening {query_type} dataset...")
+            group = f"single/{query_type}"
+            logger.info(f"Opening {group} dataset...")
             ds = xr.open_dataset(
                 session.store,
                 engine="zarr",
                 consolidated=False,
                 zarr_format=3,
                 chunks=None,
-                group=query_type,
+                group=group,
             )
+            # Store's time coordinate is "valid_time" — normalize to "time"
+            # so the rest of this function (and downstream file outputs)
+            # stay unchanged.
+            if "valid_time" in ds.dims:
+                ds = ds.rename({"valid_time": "time"})
 
             # Validate variable exists
-            # Auto-compute tp = cp + lsp if tp is not directly available
-            compute_tp = False
-            if short_var not in ds:
-                if short_var == "tp" and "cp" in ds and "lsp" in ds:
-                    logger.info("Variable 'tp' not in store — will compute tp = cp + lsp")
-                    compute_tp = True
-                else:
-                    available = list(ds.data_vars)
-                    return (
-                        f"Error: Variable '{short_var}' not found in dataset.\n"
-                        f"Available variables: {', '.join(available)}\n\n"
-                        f"Variable reference:\n{list_available_variables()}"
-                    )
+            if zarr_var not in ds:
+                available = list(ds.data_vars)
+                return (
+                    f"Error: Variable '{short_var}' not found in dataset.\n"
+                    f"Available variables: {', '.join(available)}\n\n"
+                    f"Variable reference:\n{list_available_variables()}"
+                )
 
             # ERA5 latitude is stored 90 -> -90 (descending)
             lat_slice = slice(max_latitude, min_latitude)
@@ -413,52 +419,36 @@ def retrieve_era5_data(
                 
                 # Subset both portions
                 logger.info("Subsetting data (two-part: west + east of prime meridian)...")
-                fetch_vars = ["cp", "lsp"] if compute_tp else [short_var]
-                subsets_all = []
-                for fv in fetch_vars:
-                    subset_west = ds[fv].sel(
-                        time=slice(start_date, end_date),
-                        latitude=lat_slice,
-                        longitude=west_slice,
-                    )
-                    subset_east = ds[fv].sel(
-                        time=slice(start_date, end_date),
-                        latitude=lat_slice,
-                        longitude=east_slice,
-                    )
-                    
-                    # Convert western longitudes from 360+ to negative (for -180/+180 output)
-                    # e.g., 359.1 -> -0.9
-                    subset_west = subset_west.assign_coords(
-                        longitude=subset_west.longitude - 360
-                    )
-                    
-                    # Concatenate along longitude
-                    subsets_all.append(xr.concat([subset_west, subset_east], dim='longitude'))
-                
-                if compute_tp:
-                    subset = (subsets_all[0] + subsets_all[1]).rename("tp")
-                else:
-                    subset = subsets_all[0]
+                subset_west = ds[zarr_var].sel(
+                    time=slice(start_date, end_date),
+                    latitude=lat_slice,
+                    longitude=west_slice,
+                )
+                subset_east = ds[zarr_var].sel(
+                    time=slice(start_date, end_date),
+                    latitude=lat_slice,
+                    longitude=east_slice,
+                )
+
+                # Convert western longitudes from 360+ to negative (for -180/+180 output)
+                # e.g., 359.1 -> -0.9
+                subset_west = subset_west.assign_coords(
+                    longitude=subset_west.longitude - 360
+                )
+
+                # Concatenate along longitude
+                subset = xr.concat([subset_west, subset_east], dim='longitude')
             else:
                 # Normal case - no prime meridian crossing
                 lon_slice = slice(req_min, req_max)
 
                 # Subset the data
                 logger.info("Subsetting data...")
-                fetch_vars = ["cp", "lsp"] if compute_tp else [short_var]
-                subsets_all = []
-                for fv in fetch_vars:
-                    subsets_all.append(ds[fv].sel(
-                        time=slice(start_date, end_date),
-                        latitude=lat_slice,
-                        longitude=lon_slice,
-                    ))
-                
-                if compute_tp:
-                    subset = (subsets_all[0] + subsets_all[1]).rename("tp")
-                else:
-                    subset = subsets_all[0]
+                subset = ds[zarr_var].sel(
+                    time=slice(start_date, end_date),
+                    latitude=lat_slice,
+                    longitude=lon_slice,
+                )
 
             # Convert to dataset
             ds_out = subset.to_dataset(name=short_var)
@@ -492,7 +482,7 @@ def retrieve_era5_data(
             estimated_gb = ds_out.nbytes / (1024 ** 3)
             if estimated_gb > CONFIG.max_download_size_gb:
                 snippet = _arraylake_snippet(
-                    short_var, query_type, start_date, end_date,
+                    short_var, zarr_var, query_type, start_date, end_date,
                     min_latitude, max_latitude,
                     min_longitude if min_longitude >= 0 else min_longitude % 360,
                     max_longitude if max_longitude >= 0 else max_longitude % 360,
@@ -579,7 +569,7 @@ def retrieve_era5_data(
                 time.sleep(wait_time)
             else:
                 snippet = _arraylake_snippet(
-                    short_var, query_type, start_date, end_date,
+                    short_var, zarr_var, query_type, start_date, end_date,
                     min_latitude, max_latitude,
                     min_longitude if min_longitude >= 0 else min_longitude % 360,
                     max_longitude if max_longitude >= 0 else max_longitude % 360,
