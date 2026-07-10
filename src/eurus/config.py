@@ -329,7 +329,7 @@ ERA5_VARIABLES: Dict[str, ERA5Variable] = {
         description="Maximum 3-second wind gust at 10 meters since the previous post-processing",
         category="atmosphere",
         typical_range=(0, 60),
-        colormap="RdBu_r"
+        colormap="viridis"
     ),
     "zust": ERA5Variable(
         short_name="zust",

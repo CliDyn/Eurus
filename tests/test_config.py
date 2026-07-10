@@ -77,6 +77,24 @@ def test_zarr_name_passes_through_unknown_variables():
     assert get_zarr_name("not_a_real_var") == "not_a_real_var"
 
 
+@pytest.mark.parametrize("short_name", ALL_CATALOG_VARS)
+def test_diverging_colormap_only_on_signed_variables(short_name):
+    """RdBu_r centres on zero, so it's wrong for one-sided quantities.
+
+    Wind components and fluxes are signed and diverge meaningfully; gust
+    speed, roughness and radiation totals are non-negative and must not.
+    """
+    var = ERA5_VARIABLES[short_name]
+    if var.colormap != "RdBu_r":
+        return
+    low, high = var.typical_range
+    assert low is not None and high is not None, f"{short_name}: RdBu_r needs a range"
+    assert low < 0 < high, (
+        f"{short_name}: diverging RdBu_r but typical_range {var.typical_range} "
+        f"does not straddle zero — use a sequential colormap"
+    )
+
+
 def test_variable_loading():
     """Test that ERA5 variables are loaded correctly."""
     assert "sst" in ERA5_VARIABLES
