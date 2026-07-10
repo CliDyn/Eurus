@@ -10,6 +10,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import threading
 import time
@@ -80,6 +81,14 @@ def _format_coord(value: float) -> str:
     return f"{value:.2f}"
 
 
+def source_tag(source: str) -> str:
+    """Reduce an Arraylake repo name to a filename-safe cache discriminator.
+
+    e.g. "earthmover-public/era5" -> "earthmover-public-era5"
+    """
+    return re.sub(r"[^0-9a-z]+", "-", source.lower()).strip("-")
+
+
 def generate_filename(
     variable: str,
     query_type: str,
@@ -90,11 +99,18 @@ def generate_filename(
     min_longitude: float,
     max_longitude: float,
     region: Optional[str] = None,
+    source: Optional[str] = None,
 ) -> str:
-    """Generate a descriptive filename for the dataset."""
+    """Generate a descriptive filename for the dataset.
+
+    The source repo is part of the name: identical queries against different
+    ERA5 stores return different arrays (renamed variables, different dim
+    order, different time coverage), so they must not share a cache entry.
+    """
     clean_var = variable.replace("_", "")
     clean_start = start.replace("-", "")
     clean_end = end.replace("-", "")
+    src = source_tag(source or CONFIG.data_source)
     if region:
         region_tag = region.lower()
     else:
@@ -102,7 +118,7 @@ def generate_filename(
             f"lat{_format_coord(min_latitude)}_{_format_coord(max_latitude)}"
             f"_lon{_format_coord(min_longitude)}_{_format_coord(max_longitude)}"
         )
-    return f"era5_{clean_var}_{query_type}_{clean_start}_{clean_end}_{region_tag}.zarr"
+    return f"{src}_{clean_var}_{query_type}_{clean_start}_{clean_end}_{region_tag}.zarr"
 
 
 def format_file_size(size_bytes: int) -> str:

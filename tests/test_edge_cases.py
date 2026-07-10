@@ -45,6 +45,37 @@ class TestFilenameGeneration:
         assert "mediterranean" in name
         assert "lat" not in name  # region tag replaces coord string
 
+    def test_filename_includes_data_source(self):
+        """Current source must appear in the name so caches can't collide."""
+        from eurus.retrieval import generate_filename
+        from eurus.config import CONFIG
+        name = generate_filename(
+            "sst", "temporal", "2023-01-01", "2023-01-31",
+            min_latitude=0, max_latitude=10,
+            min_longitude=0, max_longitude=10,
+        )
+        assert name.startswith("earthmover-public-era5_")
+        assert CONFIG.data_source == "earthmover-public/era5"
+
+    def test_different_sources_do_not_share_a_cache_entry(self):
+        """The same query against the old and new store must not collide."""
+        from eurus.retrieval import generate_filename
+        kwargs = dict(
+            variable="sst", query_type="temporal",
+            start="2023-01-01", end="2023-01-31",
+            min_latitude=0, max_latitude=10,
+            min_longitude=0, max_longitude=10,
+        )
+        new = generate_filename(**kwargs, source="earthmover-public/era5")
+        old = generate_filename(**kwargs, source="earthmover-public/era5-surface-aws")
+        assert new != old
+
+    def test_source_tag_is_filename_safe(self):
+        from eurus.retrieval import source_tag
+        assert source_tag("earthmover-public/era5") == "earthmover-public-era5"
+        assert source_tag("Org/Repo_Name.v2") == "org-repo-name-v2"
+        assert "/" not in source_tag("a/b/c")
+
     def test_format_coord_near_zero(self):
         from eurus.retrieval import _format_coord
         assert _format_coord(0.003) == "0.00"
