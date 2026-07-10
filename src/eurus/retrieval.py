@@ -14,7 +14,7 @@ import re
 import shutil
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from urllib.request import Request, urlopen
@@ -237,6 +237,17 @@ def retrieve_era5_data(
     """
     memory = get_memory()
 
+    # Pure input validation first — no credentials or network needed.
+    # Only genuinely impossible dates are rejected here. The archive's coverage
+    # end advances with every quarterly update, so it is read from the store
+    # further down rather than duplicated as a constant that would go stale.
+    req_start = datetime.strptime(start_date, '%Y-%m-%d')
+    if req_start > datetime.now():
+        return (
+            f"Error: Requested start date ({start_date}) is in the future.\n"
+            f"ERA5 is a reanalysis of the past, refreshed quarterly."
+        )
+
     # Get API key: prefer explicit parameter, fall back to env var
     api_key = api_key or os.environ.get("ARRAYLAKE_API_KEY")
     if not api_key:
@@ -283,14 +294,6 @@ def retrieve_era5_data(
     short_var = get_short_name(variable_id)
     zarr_var = get_zarr_name(variable_id)
     var_info = get_variable_info(variable_id)
-
-    # Check for future / too-recent dates (ERA5T has a ~5-day processing lag)
-    req_start = datetime.strptime(start_date, '%Y-%m-%d')
-    if req_start > datetime.now() - timedelta(days=5):
-        return (
-            f"Error: Requested start date ({start_date}) is too recent or in the future.\n"
-            f"ERA5 data has a ~5-day processing lag. Please request dates at least 5 days ago."
-        )
 
     # Setup paths
     output_dir = get_data_dir()
@@ -480,14 +483,17 @@ def retrieve_era5_data(
             # Check for empty time dimension (no data in requested range)
             if ds_out.dims.get('time', 0) == 0:
                 # Get actual data availability
+                time_min = ds['time'].min().values
                 time_max = ds['time'].max().values
                 import numpy as np
+                first_available = str(np.datetime_as_string(time_min, unit='D'))
                 last_available = str(np.datetime_as_string(time_max, unit='D'))
                 return (
                     f"Error: No data available for the requested time range.\n"
                     f"Requested: {start_date} to {end_date}\n"
-                    f"ERA5 data on Arraylake is available until {last_available}.\n\n"
-                    f"Please request dates up to {last_available}."
+                    f"This ERA5 archive covers {first_available} to {last_available} "
+                    f"and is extended quarterly.\n\n"
+                    f"Please request dates within that range."
                 )
 
             # Check for empty data (all NaNs) — only check 1st timestep
@@ -498,8 +504,7 @@ def retrieve_era5_data(
                     f"Error: The downloaded data for '{short_var}' is entirely empty (NaNs).\n"
                     f"Possible causes:\n"
                     f"1. The requested date/region has no data (e.g., SST over land).\n"
-                    f"2. The request is too recent (ERA5T has a 5-day delay).\n"
-                    f"3. Region bounds might be invalid or cross the prime meridian incorrectly."
+                    f"2. Region bounds might be invalid or cross the prime meridian incorrectly."
                 )
 
             # Size guard — prevent downloading datasets larger than the configured limit

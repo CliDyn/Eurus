@@ -10,6 +10,7 @@ Run with: pytest tests/test_edge_cases.py -v -s
 
 import os
 import pytest
+from datetime import datetime, timedelta
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -108,7 +109,9 @@ class TestGroupPath:
 class TestFutureDateRejection:
     """Ensure retrieval rejects future start dates without touching the API."""
 
-    def test_future_date_returns_error(self):
+    def test_future_date_returns_error(self, monkeypatch):
+        """Runs before the credential check, so it needs no API key."""
+        monkeypatch.delenv("ARRAYLAKE_API_KEY", raising=False)
         from eurus.retrieval import retrieve_era5_data
         result = retrieve_era5_data(
             query_type="temporal",
@@ -120,6 +123,28 @@ class TestFutureDateRejection:
         )
         assert "future" in result.lower()
         assert "Error" in result
+        assert "ARRAYLAKE_API_KEY" not in result
+
+    def test_recent_past_date_is_not_rejected(self, monkeypatch):
+        """A date days old must reach the store, not trip a stale lag guard.
+
+        The old guard rejected anything newer than now-5d for an "ERA5T
+        processing lag" that does not apply to this quarterly archive.
+        """
+        monkeypatch.delenv("ARRAYLAKE_API_KEY", raising=False)
+        from eurus.retrieval import retrieve_era5_data
+        recent = (datetime.now() - timedelta(days=2)).strftime("%Y-%m-%d")
+        result = retrieve_era5_data(
+            query_type="temporal",
+            variable_id="sst",
+            start_date=recent,
+            end_date=recent,
+            min_latitude=0, max_latitude=10,
+            min_longitude=250, max_longitude=260,
+        )
+        # Validation passed; it got as far as needing credentials.
+        assert "future" not in result.lower()
+        assert "ARRAYLAKE_API_KEY" in result
 
 
 # ============================================================================
