@@ -48,7 +48,7 @@ def _arraylake_snippet(
     # Convert negative lons to 0-360 for ERA5
     era5_min = min_lon % 360 if min_lon < 0 else min_lon
     era5_max = max_lon % 360 if max_lon < 0 else max_lon
-    group = f"single/{query_type}"
+    group = f"{CONFIG.data_group}/{query_type}"
     return (
         f"\n📦 Reproduce this download yourself (copy-paste into Jupyter):\n"
         f"```python\n"
@@ -369,7 +369,7 @@ def retrieve_era5_data(
             repo = client.get_repo(CONFIG.data_source)
             session = repo.readonly_session("main")
 
-            group = f"single/{query_type}"
+            group = f"{CONFIG.data_group}/{query_type}"
             logger.info(f"Opening {group} dataset...")
             ds = xr.open_dataset(
                 session.store,

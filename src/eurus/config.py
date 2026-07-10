@@ -682,6 +682,10 @@ class AgentConfig:
 
     # Data Settings
     data_source: str = "earthmover-public/era5"
+    # Zarr group holding surface/single-level variables. Queries resolve to
+    # f"{data_group}/{query_type}", so this travels with data_source — the two
+    # describe the same store and must be changed together.
+    data_group: str = "single"
     default_query_type: str = "temporal"
     max_download_size_gb: float = 15.0
 

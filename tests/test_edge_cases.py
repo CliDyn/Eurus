@@ -76,6 +76,28 @@ class TestFilenameGeneration:
         assert source_tag("Org/Repo_Name.v2") == "org-repo-name-v2"
         assert "/" not in source_tag("a/b/c")
 
+
+class TestGroupPath:
+    """The zarr group path must track CONFIG, not be hardcoded."""
+
+    def test_snippet_group_follows_config(self, monkeypatch):
+        from eurus.config import CONFIG
+        from eurus.retrieval import _arraylake_snippet
+        monkeypatch.setattr(CONFIG, "data_group", "pressure")
+        snippet = _arraylake_snippet(
+            "t", "t", "spatial", "2020-01-01", "2020-01-02", 0, 10, 0, 10,
+        )
+        assert "group='pressure/spatial'" in snippet
+
+    def test_snippet_group_defaults_to_single(self):
+        from eurus.config import CONFIG
+        from eurus.retrieval import _arraylake_snippet
+        assert CONFIG.data_group == "single"
+        snippet = _arraylake_snippet(
+            "t2", "t2m", "temporal", "2020-01-01", "2020-01-02", 0, 10, 0, 10,
+        )
+        assert "group='single/temporal'" in snippet
+
     def test_format_coord_near_zero(self):
         from eurus.retrieval import _format_coord
         assert _format_coord(0.003) == "0.00"
