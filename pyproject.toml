@@ -42,6 +42,7 @@ dependencies = [
     "arraylake>=0.10.0",
     "xarray>=2024.10.0",
     "zarr>=3.0.0",
+    "numcodecs[pcodec]>=0.16.0",
     "pandas>=2.0.0",
     "numpy>=1.24.0",
     "pydantic>=2.0.0",
