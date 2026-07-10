@@ -10,10 +10,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import shutil
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 from urllib.request import Request, urlopen
@@ -24,6 +25,7 @@ from eurus.config import (
     get_region,
     get_short_name,
     get_variable_info,
+    get_zarr_name,
     list_available_variables,
 )
 from eurus.memory import get_memory
@@ -33,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 def _arraylake_snippet(
     variable: str,
+    zarr_variable: str,
     query_type: str,
     start_date: str,
     end_date: str,
@@ -45,6 +48,7 @@ def _arraylake_snippet(
     # Convert negative lons to 0-360 for ERA5
     era5_min = min_lon % 360 if min_lon < 0 else min_lon
     era5_max = max_lon % 360 if max_lon < 0 else max_lon
+    group = f"{CONFIG.data_group}/{query_type}"
     return (
         f"\n📦 Reproduce this download yourself (copy-paste into Jupyter):\n"
         f"```python\n"
@@ -57,15 +61,18 @@ def _arraylake_snippet(
         f"\n"
         f"ds = xr.open_dataset(session.store, engine='zarr',\n"
         f"                     consolidated=False, zarr_format=3,\n"
-        f"                     chunks=None, group='{query_type}')\n"
+        f"                     chunks=None, group='{group}')\n"
+        f"ds = ds.rename({{'valid_time': 'time'}})   # store names the time dim 'valid_time'\n"
         f"\n"
-        f"subset = ds['{variable}'].sel(\n"
+        f"subset = ds['{zarr_variable}'].sel(\n"
         f"    time=slice('{start_date}', '{end_date}'),\n"
         f"    latitude=slice({max_lat}, {min_lat}),   # ERA5: descending\n"
         f"    longitude=slice({era5_min}, {era5_max}),\n"
         f")\n"
         f"\n"
-        f"subset.load().to_dataset(name='{variable}').to_zarr('my_data.zarr', mode='w')\n"
+        f"out = subset.load().to_dataset(name='{variable}')\n"
+        f"out = out.drop_vars('lsm', errors='ignore')   # store ships lsm unwritten (all-NaN)\n"
+        f"out.to_zarr('my_data.zarr', mode='w')\n"
         f"```"
     )
 
@@ -75,6 +82,14 @@ def _format_coord(value: float) -> str:
     if abs(value) < 0.005:
         value = 0.0
     return f"{value:.2f}"
+
+
+def source_tag(source: str) -> str:
+    """Reduce an Arraylake repo name to a filename-safe cache discriminator.
+
+    e.g. "earthmover-public/era5" -> "earthmover-public-era5"
+    """
+    return re.sub(r"[^0-9a-z]+", "-", source.lower()).strip("-")
 
 
 def generate_filename(
@@ -87,11 +102,18 @@ def generate_filename(
     min_longitude: float,
     max_longitude: float,
     region: Optional[str] = None,
+    source: Optional[str] = None,
 ) -> str:
-    """Generate a descriptive filename for the dataset."""
+    """Generate a descriptive filename for the dataset.
+
+    The source repo is part of the name: identical queries against different
+    ERA5 stores return different arrays (renamed variables, different dim
+    order, different time coverage), so they must not share a cache entry.
+    """
     clean_var = variable.replace("_", "")
     clean_start = start.replace("-", "")
     clean_end = end.replace("-", "")
+    src = source_tag(source or CONFIG.data_source)
     if region:
         region_tag = region.lower()
     else:
@@ -99,7 +121,7 @@ def generate_filename(
             f"lat{_format_coord(min_latitude)}_{_format_coord(max_latitude)}"
             f"_lon{_format_coord(min_longitude)}_{_format_coord(max_longitude)}"
         )
-    return f"era5_{clean_var}_{query_type}_{clean_start}_{clean_end}_{region_tag}.zarr"
+    return f"{src}_{clean_var}_{query_type}_{clean_start}_{clean_end}_{region_tag}.zarr"
 
 
 def format_file_size(size_bytes: int) -> str:
@@ -215,6 +237,17 @@ def retrieve_era5_data(
     """
     memory = get_memory()
 
+    # Pure input validation first — no credentials or network needed.
+    # Only genuinely impossible dates are rejected here. The archive's coverage
+    # end advances with every quarterly update, so it is read from the store
+    # further down rather than duplicated as a constant that would go stale.
+    req_start = datetime.strptime(start_date, '%Y-%m-%d')
+    if req_start > datetime.now():
+        return (
+            f"Error: Requested start date ({start_date}) is in the future.\n"
+            f"ERA5 is a reanalysis of the past, refreshed quarterly."
+        )
+
     # Get API key: prefer explicit parameter, fall back to env var
     api_key = api_key or os.environ.get("ARRAYLAKE_API_KEY")
     if not api_key:
@@ -255,17 +288,12 @@ def retrieve_era5_data(
         else:
             logger.warning(f"Unknown region '{region}', using provided coordinates")
 
-    # Resolve variable name
+    # Resolve variable name (catalog short_var for display/filenames,
+    # zarr_var for indexing into the store — they differ for a few
+    # renamed variables, e.g. "t2" -> "t2m")
     short_var = get_short_name(variable_id)
+    zarr_var = get_zarr_name(variable_id)
     var_info = get_variable_info(variable_id)
-
-    # Check for future / too-recent dates (ERA5T has a ~5-day processing lag)
-    req_start = datetime.strptime(start_date, '%Y-%m-%d')
-    if req_start > datetime.now() - timedelta(days=5):
-        return (
-            f"Error: Requested start date ({start_date}) is too recent or in the future.\n"
-            f"ERA5 data has a ~5-day processing lag. Please request dates at least 5 days ago."
-        )
 
     # Setup paths
     output_dir = get_data_dir()
@@ -347,30 +375,30 @@ def retrieve_era5_data(
             repo = client.get_repo(CONFIG.data_source)
             session = repo.readonly_session("main")
 
-            logger.info(f"Opening {query_type} dataset...")
+            group = f"{CONFIG.data_group}/{query_type}"
+            logger.info(f"Opening {group} dataset...")
             ds = xr.open_dataset(
                 session.store,
                 engine="zarr",
                 consolidated=False,
                 zarr_format=3,
                 chunks=None,
-                group=query_type,
+                group=group,
             )
+            # Store's time coordinate is "valid_time" — normalize to "time"
+            # so the rest of this function (and downstream file outputs)
+            # stay unchanged.
+            if "valid_time" in ds.dims:
+                ds = ds.rename({"valid_time": "time"})
 
             # Validate variable exists
-            # Auto-compute tp = cp + lsp if tp is not directly available
-            compute_tp = False
-            if short_var not in ds:
-                if short_var == "tp" and "cp" in ds and "lsp" in ds:
-                    logger.info("Variable 'tp' not in store — will compute tp = cp + lsp")
-                    compute_tp = True
-                else:
-                    available = list(ds.data_vars)
-                    return (
-                        f"Error: Variable '{short_var}' not found in dataset.\n"
-                        f"Available variables: {', '.join(available)}\n\n"
-                        f"Variable reference:\n{list_available_variables()}"
-                    )
+            if zarr_var not in ds:
+                available = list(ds.data_vars)
+                return (
+                    f"Error: Variable '{short_var}' not found in dataset.\n"
+                    f"Available variables: {', '.join(available)}\n\n"
+                    f"Variable reference:\n{list_available_variables()}"
+                )
 
             # ERA5 latitude is stored 90 -> -90 (descending)
             lat_slice = slice(max_latitude, min_latitude)
@@ -413,67 +441,59 @@ def retrieve_era5_data(
                 
                 # Subset both portions
                 logger.info("Subsetting data (two-part: west + east of prime meridian)...")
-                fetch_vars = ["cp", "lsp"] if compute_tp else [short_var]
-                subsets_all = []
-                for fv in fetch_vars:
-                    subset_west = ds[fv].sel(
-                        time=slice(start_date, end_date),
-                        latitude=lat_slice,
-                        longitude=west_slice,
-                    )
-                    subset_east = ds[fv].sel(
-                        time=slice(start_date, end_date),
-                        latitude=lat_slice,
-                        longitude=east_slice,
-                    )
-                    
-                    # Convert western longitudes from 360+ to negative (for -180/+180 output)
-                    # e.g., 359.1 -> -0.9
-                    subset_west = subset_west.assign_coords(
-                        longitude=subset_west.longitude - 360
-                    )
-                    
-                    # Concatenate along longitude
-                    subsets_all.append(xr.concat([subset_west, subset_east], dim='longitude'))
-                
-                if compute_tp:
-                    subset = (subsets_all[0] + subsets_all[1]).rename("tp")
-                else:
-                    subset = subsets_all[0]
+                subset_west = ds[zarr_var].sel(
+                    time=slice(start_date, end_date),
+                    latitude=lat_slice,
+                    longitude=west_slice,
+                )
+                subset_east = ds[zarr_var].sel(
+                    time=slice(start_date, end_date),
+                    latitude=lat_slice,
+                    longitude=east_slice,
+                )
+
+                # Convert western longitudes from 360+ to negative (for -180/+180 output)
+                # e.g., 359.1 -> -0.9
+                subset_west = subset_west.assign_coords(
+                    longitude=subset_west.longitude - 360
+                )
+
+                # Concatenate along longitude
+                subset = xr.concat([subset_west, subset_east], dim='longitude')
             else:
                 # Normal case - no prime meridian crossing
                 lon_slice = slice(req_min, req_max)
 
                 # Subset the data
                 logger.info("Subsetting data...")
-                fetch_vars = ["cp", "lsp"] if compute_tp else [short_var]
-                subsets_all = []
-                for fv in fetch_vars:
-                    subsets_all.append(ds[fv].sel(
-                        time=slice(start_date, end_date),
-                        latitude=lat_slice,
-                        longitude=lon_slice,
-                    ))
-                
-                if compute_tp:
-                    subset = (subsets_all[0] + subsets_all[1]).rename("tp")
-                else:
-                    subset = subsets_all[0]
+                subset = ds[zarr_var].sel(
+                    time=slice(start_date, end_date),
+                    latitude=lat_slice,
+                    longitude=lon_slice,
+                )
 
             # Convert to dataset
             ds_out = subset.to_dataset(name=short_var)
 
+            # The store declares an `lsm` land-sea-mask coordinate on every
+            # variable, but ships it unwritten — reads come back entirely NaN.
+            # Drop it so downloads don't carry an empty array that looks usable.
+            ds_out = ds_out.drop_vars("lsm", errors="ignore")
+
             # Check for empty time dimension (no data in requested range)
             if ds_out.dims.get('time', 0) == 0:
                 # Get actual data availability
+                time_min = ds['time'].min().values
                 time_max = ds['time'].max().values
                 import numpy as np
+                first_available = str(np.datetime_as_string(time_min, unit='D'))
                 last_available = str(np.datetime_as_string(time_max, unit='D'))
                 return (
                     f"Error: No data available for the requested time range.\n"
                     f"Requested: {start_date} to {end_date}\n"
-                    f"ERA5 data on Arraylake is available until {last_available}.\n\n"
-                    f"Please request dates up to {last_available}."
+                    f"This ERA5 archive covers {first_available} to {last_available} "
+                    f"and is extended quarterly.\n\n"
+                    f"Please request dates within that range."
                 )
 
             # Check for empty data (all NaNs) — only check 1st timestep
@@ -484,15 +504,14 @@ def retrieve_era5_data(
                     f"Error: The downloaded data for '{short_var}' is entirely empty (NaNs).\n"
                     f"Possible causes:\n"
                     f"1. The requested date/region has no data (e.g., SST over land).\n"
-                    f"2. The request is too recent (ERA5T has a 5-day delay).\n"
-                    f"3. Region bounds might be invalid or cross the prime meridian incorrectly."
+                    f"2. Region bounds might be invalid or cross the prime meridian incorrectly."
                 )
 
             # Size guard — prevent downloading datasets larger than the configured limit
             estimated_gb = ds_out.nbytes / (1024 ** 3)
             if estimated_gb > CONFIG.max_download_size_gb:
                 snippet = _arraylake_snippet(
-                    short_var, query_type, start_date, end_date,
+                    short_var, zarr_var, query_type, start_date, end_date,
                     min_latitude, max_latitude,
                     min_longitude if min_longitude >= 0 else min_longitude % 360,
                     max_longitude if max_longitude >= 0 else max_longitude % 360,
@@ -579,7 +598,7 @@ def retrieve_era5_data(
                 time.sleep(wait_time)
             else:
                 snippet = _arraylake_snippet(
-                    short_var, query_type, start_date, end_date,
+                    short_var, zarr_var, query_type, start_date, end_date,
                     min_latitude, max_latitude,
                     min_longitude if min_longitude >= 0 else min_longitude % 360,
                     max_longitude if max_longitude >= 0 else max_longitude % 360,

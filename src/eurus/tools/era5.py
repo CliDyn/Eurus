@@ -34,17 +34,21 @@ class ERA5RetrievalArgs(BaseModel):
 
     variable_id: str = Field(
         description=(
-            "ERA5 variable short name. Available variables (22 total):\n"
+            "ERA5 variable short name. Available variables (38 total):\n"
             "Ocean: sst (Sea Surface Temperature)\n"
             "Temperature: t2 (2m Air Temp), d2 (2m Dewpoint), skt (Skin Temp)\n"
-            "Wind 10m: u10 (Eastward), v10 (Northward)\n"
+            "Wind 10m: u10 (Eastward), v10 (Northward), fg10 (Gust)\n"
             "Wind 100m: u100 (Eastward), v100 (Northward)\n"
+            "Wind (other): zust (Friction Velocity)\n"
             "Pressure: sp (Surface), mslp (Mean Sea Level)\n"
             "Boundary Layer: blh (BL Height), cape (CAPE)\n"
-            "Cloud/Precip: tcc (Cloud Cover), cp (Convective), lsp (Large-scale), tp (Total Precip)\n"
-            "Radiation: ssr (Net Solar), ssrd (Solar Downwards)\n"
+            "Cloud: tcc (Total), hcc (High), mcc (Medium), lcc (Low)\n"
+            "Precip: cp (Convective), lsp (Large-scale), tp (Total), sf (Snowfall)\n"
+            "Radiation: ssr (Net Solar), ssrd (Solar Downwards), fdir (Direct Solar), "
+            "tisr (TOA Incident), tsr (TOA Net), slhf (Latent Heat Flux), ie (Moisture Flux)\n"
             "Moisture: tcw (Total Column Water), tcwv (Water Vapour)\n"
-            "Land: sd (Snow Depth), stl1 (Soil Temp L1), swvl1 (Soil Water L1)"
+            "Land: sd (Snow Depth), stl1-4 (Soil Temp L1-L4), swvl1 (Soil Water L1), "
+            "fsr (Surface Roughness)"
         )
     )
 
@@ -194,11 +198,12 @@ _ERA5_TOOL_DESCRIPTION = (
     "Retrieves ERA5 climate reanalysis data from Earthmover's cloud archive.\n\n"
     "⚠️ query_type is AUTO-DETECTED - you don't need to specify it!\n\n"
     "Just provide:\n"
-    "- variable_id: one of 22 ERA5 variables (sst, t2, d2, skt, u10, v10, u100, v100, "
-    "sp, mslp, blh, cape, tcc, cp, lsp, tp, ssr, ssrd, tcw, tcwv, sd, stl1, swvl1)\n"
+    "- variable_id: one of 38 ERA5 surface variables (sst, t2, d2, skt, u10, v10, u100, v100, "
+    "fg10, zust, sp, mslp, blh, cape, tcc, hcc, mcc, lcc, cp, lsp, tp, sf, ssr, ssrd, fdir, "
+    "tisr, tsr, slhf, ie, tcw, tcwv, sd, stl1, stl2, stl3, stl4, swvl1, fsr)\n"
     "- start_date, end_date: YYYY-MM-DD format\n"
     "- lat/lon bounds: Use values from maritime route bounding box!\n\n"
-    "DATA: 1975-2024.\n"
+    "DATA: 1940-2025 (quarterly updates).\n"
     "Returns file path. Load with: xr.open_zarr('PATH')"
 )
 

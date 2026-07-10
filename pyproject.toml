@@ -8,7 +8,7 @@ version = "1.0.0"
 description = "Eurus Climate Agent - Access ERA5 reanalysis data through Model Context Protocol"
 readme = "README.md"
 license = {text = "MIT"}
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [
     {name = "Eurus Team", email = "eurus@example.com"}
 ]
@@ -30,9 +30,9 @@ classifiers = [
     "License :: OSI Approved :: MIT License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
-    "Programming Language :: Python :: 3.10",
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Topic :: Scientific/Engineering :: Atmospheric Science",
     "Topic :: Scientific/Engineering :: GIS",
 ]
@@ -42,6 +42,7 @@ dependencies = [
     "arraylake>=0.10.0",
     "xarray>=2024.10.0",
     "zarr>=3.0.0",
+    "numcodecs[pcodec]>=0.16.0",
     "pandas>=2.0.0",
     "numpy>=1.24.0",
     "pydantic>=2.0.0",
@@ -106,7 +107,7 @@ include = [
 
 [tool.black]
 line-length = 100
-target-version = ['py310', 'py311', 'py312']
+target-version = ['py311', 'py312', 'py313']
 
 [tool.ruff]
 line-length = 100
@@ -125,7 +126,7 @@ ignore = [
 ]
 
 [tool.mypy]
-python_version = "3.10"
+python_version = "3.11"
 warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = true

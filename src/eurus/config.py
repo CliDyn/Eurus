@@ -54,13 +54,16 @@ class ERA5Variable:
     category: str
     typical_range: tuple[float | None, float | None] = (None, None)
     colormap: str = "viridis"
+    zarr_name: Optional[str] = None  # array name in the store, if it differs from short_name
 
     def __str__(self) -> str:
         return f"{self.short_name}: {self.long_name} ({self.units})"
 
 
-# Comprehensive ERA5 variable mapping — ALL 22 Arraylake variables
-# Source: earthmover-public/era5-surface-aws Icechunk store
+# Comprehensive ERA5 variable mapping — surface/single-level variables from
+# the earthmover-public/era5 Icechunk store (group "single").
+# `zarr_name` is set when the array name in the store differs from our
+# catalog `short_name` (kept stable for backwards-compatible outputs/filenames).
 ERA5_VARIABLES: Dict[str, ERA5Variable] = {
     # ── Ocean ──────────────────────────────────────────────────────────────
     "sst": ERA5Variable(
@@ -80,7 +83,8 @@ ERA5_VARIABLES: Dict[str, ERA5Variable] = {
         description="Air temperature at 2 meters above the surface",
         category="atmosphere",
         typical_range=(220, 330),
-        colormap="RdYlBu_r"
+        colormap="RdYlBu_r",
+        zarr_name="t2m"
     ),
     "d2": ERA5Variable(
         short_name="d2",
@@ -89,7 +93,8 @@ ERA5_VARIABLES: Dict[str, ERA5Variable] = {
         description="Temperature to which air at 2m must cool to reach saturation; indicates humidity",
         category="atmosphere",
         typical_range=(220, 310),
-        colormap="RdYlBu_r"
+        colormap="RdYlBu_r",
+        zarr_name="d2m"
     ),
     "skt": ERA5Variable(
         short_name="skt",
@@ -155,7 +160,8 @@ ERA5_VARIABLES: Dict[str, ERA5Variable] = {
         description="Atmospheric pressure reduced to mean sea level",
         category="atmosphere",
         typical_range=(96000, 105000),
-        colormap="viridis"
+        colormap="viridis",
+        zarr_name="msl"
     ),
     # ── Boundary Layer ─────────────────────────────────────────────────────
     "blh": ERA5Variable(
@@ -279,6 +285,145 @@ ERA5_VARIABLES: Dict[str, ERA5Variable] = {
         typical_range=(0, 0.5),
         colormap="YlGnBu"
     ),
+    "stl2": ERA5Variable(
+        short_name="stl2",
+        long_name="Soil Temperature Level 2",
+        units="K",
+        description="Temperature of the second soil layer (7-28 cm depth)",
+        category="land_surface",
+        typical_range=(220, 330),
+        colormap="RdYlBu_r"
+    ),
+    "stl3": ERA5Variable(
+        short_name="stl3",
+        long_name="Soil Temperature Level 3",
+        units="K",
+        description="Temperature of the third soil layer (28-100 cm depth)",
+        category="land_surface",
+        typical_range=(220, 330),
+        colormap="RdYlBu_r"
+    ),
+    "stl4": ERA5Variable(
+        short_name="stl4",
+        long_name="Soil Temperature Level 4",
+        units="K",
+        description="Temperature of the deepest soil layer (100-289 cm depth)",
+        category="land_surface",
+        typical_range=(220, 330),
+        colormap="RdYlBu_r"
+    ),
+    "fsr": ERA5Variable(
+        short_name="fsr",
+        long_name="Forecast Surface Roughness",
+        units="m",
+        description="Aerodynamic roughness length of the surface",
+        category="land_surface",
+        typical_range=(0, 3),
+        colormap="YlGnBu"
+    ),
+    # ── Wind (additional) ─────────────────────────────────────────────────
+    "fg10": ERA5Variable(
+        short_name="fg10",
+        long_name="10m Wind Gust",
+        units="m/s",
+        description="Maximum 3-second wind gust at 10 meters since the previous post-processing",
+        category="atmosphere",
+        typical_range=(0, 60),
+        colormap="viridis"
+    ),
+    "zust": ERA5Variable(
+        short_name="zust",
+        long_name="Friction Velocity",
+        units="m/s",
+        description="Turbulent surface stress expressed as a velocity scale",
+        category="atmosphere",
+        typical_range=(0, 3),
+        colormap="viridis"
+    ),
+    # ── Cloud cover (additional) ───────────────────────────────────────────
+    "hcc": ERA5Variable(
+        short_name="hcc",
+        long_name="High Cloud Cover",
+        units="fraction (0-1)",
+        description="Fraction of sky covered by high-altitude clouds",
+        category="atmosphere",
+        typical_range=(0, 1),
+        colormap="gray_r"
+    ),
+    "mcc": ERA5Variable(
+        short_name="mcc",
+        long_name="Medium Cloud Cover",
+        units="fraction (0-1)",
+        description="Fraction of sky covered by mid-altitude clouds",
+        category="atmosphere",
+        typical_range=(0, 1),
+        colormap="gray_r"
+    ),
+    "lcc": ERA5Variable(
+        short_name="lcc",
+        long_name="Low Cloud Cover",
+        units="fraction (0-1)",
+        description="Fraction of sky covered by low-altitude clouds",
+        category="atmosphere",
+        typical_range=(0, 1),
+        colormap="gray_r"
+    ),
+    # ── Precipitation (additional) ─────────────────────────────────────────
+    "sf": ERA5Variable(
+        short_name="sf",
+        long_name="Snowfall",
+        units="m water equiv.",
+        description="Accumulated snowfall expressed as meters of water equivalent",
+        category="precipitation",
+        typical_range=(0, 0.05),
+        colormap="Blues"
+    ),
+    # ── Radiation & Heat Flux (additional) ─────────────────────────────────
+    "fdir": ERA5Variable(
+        short_name="fdir",
+        long_name="Total Sky Direct Solar Radiation",
+        units="J/m²",
+        description="Direct (unscattered) shortwave radiation reaching the surface",
+        category="radiation",
+        typical_range=(0, 3.5e7),
+        colormap="YlOrRd"
+    ),
+    "tisr": ERA5Variable(
+        short_name="tisr",
+        long_name="TOA Incident Solar Radiation",
+        units="J/m²",
+        description="Solar radiation incident at the top of the atmosphere",
+        category="radiation",
+        typical_range=(0, 4e7),
+        colormap="YlOrRd"
+    ),
+    "tsr": ERA5Variable(
+        short_name="tsr",
+        long_name="Top Net Solar Radiation",
+        units="J/m²",
+        description="Net shortwave radiation balance at the top of the atmosphere",
+        category="radiation",
+        typical_range=(0, 4e7),
+        colormap="YlOrRd"
+    ),
+    "slhf": ERA5Variable(
+        short_name="slhf",
+        long_name="Surface Latent Heat Flux",
+        units="J/m²",
+        description="Energy transferred between the surface and atmosphere through evaporation/condensation",
+        category="radiation",
+        typical_range=(-3e6, 1e6),
+        colormap="RdBu_r"
+    ),
+    "ie": ERA5Variable(
+        short_name="ie",
+        long_name="Instantaneous Moisture Flux",
+        units="kg m⁻² s⁻¹",
+        description="Instantaneous surface evaporation/condensation flux",
+        category="atmosphere",
+        typical_range=(-0.002, 0.002),
+        colormap="RdBu_r"
+    ),
 }
 
 # Aliases for long variable names → short names
@@ -321,6 +466,26 @@ VARIABLE_ALIASES: Dict[str, str] = {
     "soil_temperature_level_1": "stl1",
     "soil_moisture": "swvl1",
     "volumetric_soil_water_layer_1": "swvl1",
+    "soil_temperature_level_2": "stl2",
+    "soil_temperature_level_3": "stl3",
+    "soil_temperature_level_4": "stl4",
+    "forecast_surface_roughness": "fsr",
+    # Wind (additional)
+    "10m_wind_gust_since_previous_post_processing": "fg10",
+    "wind_gust": "fg10",
+    "friction_velocity": "zust",
+    # Cloud cover (additional)
+    "high_cloud_cover": "hcc",
+    "medium_cloud_cover": "mcc",
+    "low_cloud_cover": "lcc",
+    # Precipitation (additional)
+    "snowfall": "sf",
+    # Radiation & heat flux (additional)
+    "total_sky_direct_solar_radiation_at_surface": "fdir",
+    "toa_incident_solar_radiation": "tisr",
+    "top_net_solar_radiation": "tsr",
+    "surface_latent_heat_flux": "slhf",
+    "instantaneous_moisture_flux": "ie",
 }
 
 
@@ -334,7 +499,7 @@ def get_variable_info(variable_id: str) -> Optional[ERA5Variable]:
 
 
 def get_short_name(variable_id: str) -> str:
-    """Get the short name for a variable (for dataset access)."""
+    """Get the catalog short name for a variable (stable across dataset versions)."""
     key = variable_id.lower()
     # Check aliases first
     if key in VARIABLE_ALIASES:
@@ -343,6 +508,18 @@ def get_short_name(variable_id: str) -> str:
     if var_info:
         return var_info.short_name
     return key
+
+
+def get_zarr_name(variable_id: str) -> str:
+    """Get the array name to use when indexing into the Zarr store.
+
+    Usually equal to the catalog short name, except where the store's array
+    name differs (e.g. catalog "t2" maps to the store's "t2m").
+    """
+    var_info = get_variable_info(variable_id)
+    if var_info:
+        return var_info.zarr_name or var_info.short_name
+    return get_short_name(variable_id)
 
 
 def list_available_variables() -> str:
@@ -504,7 +681,11 @@ class AgentConfig:
     max_tokens: int = 4096
 
     # Data Settings
-    data_source: str = "earthmover-public/era5-surface-aws"
+    data_source: str = "earthmover-public/era5"
+    # Zarr group holding surface/single-level variables. Queries resolve to
+    # f"{data_group}/{query_type}", so this travels with data_source — the two
+    # describe the same store and must be changed together.
+    data_group: str = "single"
     default_query_type: str = "temporal"
     max_download_size_gb: float = 15.0
 
@@ -592,9 +773,9 @@ Downloads ERA5 reanalysis data from Earthmover's cloud-optimized archive.
 **⚠️ CRITICAL:** When `calculate_maritime_route` returns a bounding box,
 USE THOSE EXACT VALUES for min/max longitude. Do NOT convert to 0-360!
 
-**DATA AVAILABILITY:** 1975 to present (updated regularly)
+**DATA AVAILABILITY:** 1940-01-01 to 2025-12-31, updated quarterly
 
-**Available Variables (22 total):**
+**Available Variables (38 total):**
 | Variable | Description | Units | Category |
 |----------|-------------|-------|----------|
 | sst | Sea Surface Temperature | K | Ocean |
@@ -605,21 +786,47 @@ USE THOSE EXACT VALUES for min/max longitude. Do NOT convert to 0-360!
 | v10 | 10m V-Wind (Northward) | m/s | Wind |
 | u100 | 100m U-Wind (Eastward) | m/s | Wind |
 | v100 | 100m V-Wind (Northward) | m/s | Wind |
+| fg10 | 10m Wind Gust | m/s | Wind |
+| zust | Friction Velocity | m/s | Wind |
 | sp | Surface Pressure | Pa | Pressure |
 | mslp | Mean Sea Level Pressure | Pa | Pressure |
 | blh | Boundary Layer Height | m | Atmosphere |
 | cape | Convective Available Potential Energy | J/kg | Atmosphere |
 | tcc | Total Cloud Cover | 0-1 | Cloud |
+| hcc | High Cloud Cover | 0-1 | Cloud |
+| mcc | Medium Cloud Cover | 0-1 | Cloud |
+| lcc | Low Cloud Cover | 0-1 | Cloud |
 | cp | Convective Precipitation | m | Precipitation |
 | lsp | Large-scale Precipitation | m | Precipitation |
 | tp | Total Precipitation | m | Precipitation |
+| sf | Snowfall | m water eq. | Precipitation |
 | ssr | Surface Net Solar Radiation | J/m² | Radiation |
 | ssrd | Surface Solar Radiation Downwards | J/m² | Radiation |
+| fdir | Total Sky Direct Solar Radiation | J/m² | Radiation |
+| tisr | TOA Incident Solar Radiation | J/m² | Radiation |
+| tsr | Top Net Solar Radiation | J/m² | Radiation |
+| slhf | Surface Latent Heat Flux | J/m² | Radiation |
+| ie | Instantaneous Moisture Flux | kg/m²/s | Atmosphere |
 | tcw | Total Column Water | kg/m² | Moisture |
 | tcwv | Total Column Water Vapour | kg/m² | Moisture |
 | sd | Snow Depth | m water eq. | Land |
 | stl1 | Soil Temperature Level 1 | K | Land |
+| stl2 | Soil Temperature Level 2 | K | Land |
+| stl3 | Soil Temperature Level 3 | K | Land |
+| stl4 | Soil Temperature Level 4 | K | Land |
 | swvl1 | Volumetric Soil Water Layer 1 | m³/m³ | Land |
+| fsr | Forecast Surface Roughness | m | Land |
+
+⚠️ Pressure-level variables (temperature, wind, humidity, geopotential at 13
+levels from 1000-50 hPa) exist in the archive but are NOT yet wired up to
+`retrieve_era5_data` — surface/single-level variables only for now.
+
+**SHAPE OF THE DOWNLOADED FILE:**
+- Dimensions: `(time, latitude, longitude)`. Latitude descends 90 → -90.
+- Coordinates: `time`, `latitude`, `longitude`. Nothing else.
+- Data variable: named by the short name you requested (e.g. `t2`, not `t2m`).
+- No land-sea mask is provided. `sst` is already NaN over land, so mask ocean
+  points with `ds.t2.where(ds.sst.notnull())` if you need one.
 
 ### 2. CUSTOM ANALYSIS: `python_repl`
 Persistent Python kernel for custom analysis and visualization.
